@@ -29,7 +29,7 @@ server/src/
   domain/ catalog* pricing providers cases quotes payments operations documents
           planner finance access notify webhooks ai whatsapp whatsapp-transport time
   routes/ auth public cases documents payments account org provider agent ops whatsapp v1
-web/src/  pages/ (public, auth, investors)  app/ (customer, case, org, provider, agent, ops, Shell)
+web/src/  pages/ (public, auth, account)  app/ (customer, case, org, provider, agent, ops, Shell)
 mobile/   Capacitor config + brand icon/splash sources
 ```
 

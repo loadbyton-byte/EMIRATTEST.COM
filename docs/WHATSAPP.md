@@ -1,6 +1,6 @@
 # WhatsApp bot — free-tier setup
 
-The conversation engine is channel-independent (`server/src/domain/whatsapp.js`). Out of the box it runs in **simulated** mode (`/whatsapp-demo` and `POST /api/whatsapp/simulate`). To go live use either free option:
+The conversation engine is channel-independent (`server/src/domain/whatsapp.js`). Without credentials it runs against the **browser simulator** (`/whatsapp-demo` and `POST /api/whatsapp/simulate`). To go live use either free option:
 
 ## Option A — Meta WhatsApp Cloud API (free test number)
 1. developers.facebook.com → Create app → *Business* → add **WhatsApp**. Meta gives a free test phone number and lets you add up to 5 recipient numbers.

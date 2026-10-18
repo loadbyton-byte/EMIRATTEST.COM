@@ -16,8 +16,8 @@ services:
       - { key: APP_BASE_URL, sync: false }          # e.g. https://emirattest-demo.onrender.com
       - { key: CORS_ORIGINS, value: "https://localhost,capacitor://localhost" }
       - { key: STRIPE_SECRET_KEY, sync: false }     # optional: Stripe test-mode key
-      - { key: ANTHROPIC_API_KEY, sync: false }     # optional: Claude for AI answers & document extraction
-      - { key: RESEND_API_KEY, sync: false }        # optional: email delivery
+      - { key: LLM_BASE_URL, sync: false }          # optional: OpenAI-compatible endpoint (Groq, OpenRouter, Ollama)
+      - { key: SMTP_URL, sync: false }              # optional: smtp://user:pass@host:587 (Brevo, Mailjet…) or set RESEND_API_KEY
       - { key: WHATSAPP_ACCESS_TOKEN, sync: false } # optional: Meta Cloud API
       - { key: WHATSAPP_PHONE_NUMBER_ID, sync: false }
       - { key: WHATSAPP_VERIFY_TOKEN, value: emirattest-verify }

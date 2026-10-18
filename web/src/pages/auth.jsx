@@ -7,7 +7,7 @@ import { post, isNative, API_BASE } from '../api.js';
 
 export function Login() {
   const { t } = useI18n(); const { login } = useAuth(); const nav = useNavigate(); const loc = useLocation();
-  const [f, setF] = useState({ email: '', password: '', otp: '' }); const [mfa, setMfa] = useState(false); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false);
+  const sso = useApi('/api/auth/sso/config'); const [f, setF] = useState({ email: '', password: '', otp: '' }); const [mfa, setMfa] = useState(false); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false);
   const go = async (e) => {
     e.preventDefault(); setBusy(true); setErr('');
     try { const r = await login(f.email, f.password, f.otp || undefined); if (r.mfa) { setMfa(true); } else nav(loc.state?.from || homeFor(r.user), { replace: true }); }
@@ -20,7 +20,9 @@ export function Login() {
       {mfa && <Field label="Authentication code" hint="6-digit code from your authenticator app"><Input inputMode="numeric" value={f.otp} onChange={(e) => setF({ ...f, otp: e.target.value })} autoFocus /></Field>}
       {isNative() && <details className="small mb"><summary>Server</summary><Field label="API server URL" hint="The Emirattest server this app connects to"><Input defaultValue={API_BASE()} placeholder="https://your-emirattest-host" onChange={(e) => { try { localStorage.setItem('emt_api_base', e.target.value.trim()); } catch { /* ignore */ } }} /></Field></details>}
       <Btn disabled={busy} style={{ width: '100%' }}>{t('signin')}</Btn></form>
-      <p className="small mt">No account? <Link to="/register">{t('signup')}</Link> · <Link to="/demo">Demo personas</Link></p>
+      {sso.data?.enabled && <a className="btn secondary" style={{ display: 'block', textAlign: 'center', marginTop: 12 }} href={`${API_BASE()}/api/auth/sso/start`}>{sso.data.label}</a>}
+      {loc.state?.reset && <Alert kind="good">Password changed. Sign in with your new password.</Alert>}
+      <p className="small mt">No account? <Link to="/register">{t('signup')}</Link> · <Link to="/forgot-password">Forgot password?</Link></p>
       <p className="tiny muted">We never ask for your password or UAE Pass one-time codes by chat, email or phone.</p></Card></div>;
 }
 

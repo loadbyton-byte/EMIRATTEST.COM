@@ -116,11 +116,43 @@ export function Settings() {
   const setC = (k, v) => run(async () => { await put(`/api/account/consents/${k}`, { granted: v }); consents.reload(); });
   return <div style={{ maxWidth: 820 }}><PageHead title="Settings & privacy" />
     <Card className="mb"><h3>Profile</h3><div className="grid g2"><Field label="Name"><Input value={p.name} onChange={(e) => setP({ ...p, name: e.target.value })} /></Field><Field label="WhatsApp phone"><Input value={p.phone} onChange={(e) => setP({ ...p, phone: e.target.value })} /></Field></div><div className="row"><Btn onClick={() => run(async () => { await patch('/api/auth/me', { ...p, lang }); await refresh(); }, { ok: 'Saved' })} disabled={busy}>Save</Btn><Btn kind="ghost" onClick={() => setLang(lang === 'en' ? 'ar' : 'en')}>{lang === 'en' ? 'التبديل للعربية' : 'Switch to English'}</Btn></div></Card>
-    <Card className="mb"><h3>Your choices</h3>{consents.data?.consents.map((c) => <label key={c.kind} className="check"><input type="checkbox" checked={c.granted} onChange={(e) => setC(c.kind, e.target.checked)} disabled={c.kind === 'storage'} /><span><b>{LBL[c.kind]?.[0]}</b><div className="hint">{LBL[c.kind]?.[1]}</div></span></label>)}</Card>
+    <Notifications /><Card className="mb"><h3>Your choices</h3>{consents.data?.consents.map((c) => <label key={c.kind} className="check"><input type="checkbox" checked={c.granted} onChange={(e) => setC(c.kind, e.target.checked)} disabled={c.kind === 'storage'} /><span><b>{LBL[c.kind]?.[0]}</b><div className="hint">{LBL[c.kind]?.[1]}</div></span></label>)}</Card>
     <Card className="mb"><h3>Your data rights</h3><p className="small">Access, correction, export or deletion — subject to lawful retention (for example financial and custody records).</p><div className="row"><Btn kind="secondary" onClick={async () => { const j = await get('/api/account/export'); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(j, null, 2)], { type: 'application/json' })); a.download = 'emirattest-data-export.json'; a.click(); }}>Download my data</Btn><Btn kind="ghost" onClick={() => run(async () => { const r = await post('/api/account/dsr', { kind: 'deletion' }); toast(r.message); })}>Request deletion</Btn></div></Card>
     <Card className="mb"><h3>Security</h3><div className="grid g2"><Field label="Current password"><Input type="password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} /></Field><Field label="New password"><Input type="password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} /></Field></div><Btn kind="secondary" onClick={() => run(async () => { await post('/api/auth/password', pw); setPw({ current: '', next: '' }); }, { ok: 'Password changed; other sessions signed out' })} disabled={busy || !pw.current || !pw.next}>Change password</Btn>
       <hr style={{ border: 0, borderTop: '1px solid var(--border)', margin: '16px 0' }} /><div className="row between"><div><b>Two-factor authentication (authenticator app)</b><div className="small muted">Status: {user.mfa_enabled ? 'enabled' : 'not enabled'}</div></div>{!user.mfa_enabled && !mfa && <Btn size="sm" onClick={() => run(async () => setMfa(await post('/api/auth/mfa/setup')))}>Set up</Btn>}</div>
       {mfa && <div className="mt"><Alert kind="info">Add this key to your authenticator app, then enter the 6-digit code.<div className="code mt" style={{ wordBreak: 'break-all' }}>{mfa.secret}</div></Alert><div className="row"><Input style={{ maxWidth: 160 }} value={code} onChange={(e) => setCode(e.target.value)} placeholder="123456" /><Btn onClick={() => run(async () => { await post('/api/auth/mfa/enable', { code }); setMfa(null); await refresh(); }, { ok: 'MFA enabled' })}>Enable</Btn></div></div>}
       <hr style={{ border: 0, borderTop: '1px solid var(--border)', margin: '16px 0' }} /><div className="row between"><b>Active sessions</b><Btn size="sm" kind="ghost" onClick={() => run(async () => { await post('/api/auth/sessions/revoke-all'); window.location.href = '/login'; })}>Sign out everywhere</Btn></div>{sess.data?.sessions.filter((s) => !s.revoked_at).slice(0, 5).map((s) => <div key={s.id} className="tiny muted">{s.current ? '● this device' : '○'} · {fdt(s.created_at)} · {(s.device || '').slice(0, 60)}</div>)}</Card></div>;
+}
+export function Search() {
+  const [q, setQ] = useState(''); const [res, setRes] = useState(null);
+  const go = async (e) => { e.preventDefault(); if (q.trim().length >= 2) setRes(await get(`/api/account/search?q=${encodeURIComponent(q.trim())}`)); };
+  return <div style={{ maxWidth: 820 }}><PageHead title="Search" sub="Cases, documents and services you can open" />
+    <form onSubmit={go} className="row mb"><Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Case reference, document name or service…" autoFocus /><Btn>Search</Btn></form>
+    {res && <div className="grid g3" style={{ alignItems: 'start' }}>
+      <Card><h3>Cases</h3>{res.cases.length ? res.cases.map((c) => <div key={c.id} className="small mb"><Link to={`/app/cases/${c.id}`}><b>{c.ref}</b></Link> · {c.title}</div>) : <Empty title="No cases" />}</Card>
+      <Card><h3>Documents</h3>{res.documents.length ? res.documents.map((d) => <div key={d.id} className="small mb">{d.filename} <span className="muted">({d.kind})</span>{d.case_id && <> · <Link to={`/app/cases/${d.case_id}`}>open case</Link></>}</div>) : <Empty title="No documents" />}</Card>
+      <Card><h3>Services</h3>{res.services.length ? res.services.map((s) => <div key={s.slug} className="small mb"><Link to={`/services/${s.slug}`}>{s.name_en}</Link></div>) : <Empty title="No services" />}</Card>
+    </div>}</div>;
+}
+
+function Notifications() {
+  const toast = useToast(); const [state, setState] = useState('checking'); const [cal, setCal] = useState('');
+  const supported = typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window;
+  useEffect(() => { (async () => { const k = await get('/api/account/push/key').catch(() => ({})); if (!supported || !k.enabled) return setState('off'); const reg = await navigator.serviceWorker.ready; setState((await reg.pushManager.getSubscription()) ? 'on' : 'ready'); })(); }, [supported]);
+  const enable = async () => {
+    try {
+      const k = await get('/api/account/push/key'); const reg = await navigator.serviceWorker.ready;
+      if ((await Notification.requestPermission()) !== 'granted') return toast('Notifications were blocked in the browser', 'bad');
+      const pad = '='.repeat((4 - (k.publicKey.length % 4)) % 4); const raw = atob((k.publicKey + pad).replace(/-/g, '+').replace(/_/g, '/'));
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: Uint8Array.from(raw, (c) => c.charCodeAt(0)) });
+      await post('/api/account/push/subscribe', sub.toJSON()); setState('on'); toast('Push notifications enabled');
+    } catch (e) { toast(e.message, 'bad'); }
+  };
+  const disable = async () => { const reg = await navigator.serviceWorker.ready; const sub = await reg.pushManager.getSubscription(); if (sub) { await post('/api/account/push/unsubscribe', { endpoint: sub.endpoint }); await sub.unsubscribe(); } setState('ready'); };
+  return <Card className="mb"><h3>Notifications & calendar</h3>
+    <div className="row between mb"><div><b>Push notifications</b><div className="small muted">{state === 'off' ? 'Not available on this server or browser.' : state === 'on' ? 'Enabled on this device.' : 'Get case updates on this device.'}</div></div>
+      {state === 'ready' && <Btn size="sm" onClick={enable}>Enable</Btn>}{state === 'on' && <Btn size="sm" kind="ghost" onClick={disable}>Turn off</Btn>}</div>
+    <div className="row between"><div><b>Calendar feed (ICS)</b><div className="small muted">Appointments, reminders and target dates in Google, Apple or Outlook calendar.</div></div><Btn size="sm" kind="secondary" onClick={async () => setCal((await get('/api/account/calendar-link')).url)}>Show link</Btn></div>
+    {cal && <div className="code mt" style={{ wordBreak: 'break-all' }}>{cal}</div>}</Card>;
 }
 export const _c = { Timeline, Readiness, ago, api, BarChart, useMemo, Icon };

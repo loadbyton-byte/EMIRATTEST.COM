@@ -1,0 +1,43 @@
+# Quick start:   docker compose up --build            (app + Mailpit)
+# Full stack:    docker compose --profile full up --build   (adds ClamAV, MinIO, Ollama)
+services:
+  app:
+    build: .
+    ports: ["8787:8787"]
+    env_file: [.env]
+    environment:
+      DATA_DIR: /data
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+    volumes: ["emirattest-data:/data"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8787/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  mailpit:
+    image: axllent/mailpit
+    ports: ["8025:8025"]   # web inbox for outgoing mail while developing
+    restart: unless-stopped
+  clamav:
+    image: clamav/clamav:stable
+    profiles: ["full"]
+    restart: unless-stopped
+  minio:
+    image: minio/minio
+    profiles: ["full"]
+    command: server /data --console-address ":9001"
+    environment: { MINIO_ROOT_USER: minio, MINIO_ROOT_PASSWORD: change-me-minio }
+    ports: ["9001:9001"]
+    volumes: ["minio-data:/data"]
+    restart: unless-stopped
+  ollama:
+    image: ollama/ollama
+    profiles: ["full"]
+    volumes: ["ollama-data:/root/.ollama"]
+    restart: unless-stopped
+volumes:
+  emirattest-data:
+  minio-data:
+  ollama-data:

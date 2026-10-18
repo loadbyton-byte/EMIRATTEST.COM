@@ -119,7 +119,7 @@ export const _p = { all, run, conflict };
 export function createBookingPayment(booking, user) {
   const total = money(booking.price_aed + booking.fee_aed);
   const token = randomToken(16);
-  const id = insert('payments', { case_id: booking.case_id, user_id: user.id, org_id: booking.org_id, kind: 'booking', method: 'card', provider: config.stripe.key ? 'stripe' : 'mock', token, amount: total, status: 'pending', proof_note: `booking:${booking.id}` });
+  const id = insert('payments', { case_id: booking.case_id, user_id: user.id, org_id: booking.org_id, kind: 'booking', method: 'card', provider: config.stripe.key ? 'stripe' : config.demoMode ? 'mock' : 'manual', token, amount: total, status: 'pending', proof_note: `booking:${booking.id}` });
   return get('SELECT * FROM payments WHERE id = ?', id);
 }
 function verifyBookingPayment(p, providerRef) {

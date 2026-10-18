@@ -5,7 +5,7 @@ Base path `/api`. JSON in/out. Auth: httpOnly cookie (web, needs `X-Requested-Wi
 | Area | Endpoints |
 |---|---|
 | Auth | `POST /auth/register · /auth/login (202 → mfa_required) · /auth/logout · GET /auth/me · PATCH /auth/me · POST /auth/password · /auth/mfa/{setup,enable,disable} · GET /auth/sessions · POST /auth/sessions/revoke-all · GET /auth/demo-personas` |
-| Public | `GET /public/{config,categories,services,services/:slug,routes,routes/:slug,kb} · POST /public/{estimate,providers/eligible,assistant,callback,track} · GET /public/investor/{model,platform}` |
+| Public | `GET /public/{config,categories,services,services/:slug,routes,routes/:slug,kb} · POST /public/{estimate,providers/eligible,assistant,callback,track} (+ `GET /public/calendar/:token.ics`)|
 | Cases | `GET/POST /cases · GET /cases/:id · /cases/:id/{planner,readiness,providers,completion-pack} · POST /cases/:id/{documents,submit,provider,messages,cancel,recovery,appointments,complaints,feedback} · POST /cases/:id/quotes/:qid/{accept,reject}` |
 | Documents | `GET /documents/:id/{link,history,file(signed)} · POST /documents/:id/{extract,verification} · PATCH/DELETE /documents/:id` |
 | Payments | `GET /payments/:token · POST /payments/:token/{charge,stripe,bank-proof} · POST /payments/webhook/stripe` |
@@ -18,3 +18,14 @@ Base path `/api`. JSON in/out. Auth: httpOnly cookie (web, needs `X-Requested-Wi
 | Enterprise API | `GET /v1/cases[/:ref] · POST /v1/cases` with `Authorization: Bearer emt_live_…` and mandatory `Idempotency-Key` |
 
 Webhook deliveries (`POST` to your endpoint) carry `X-Emirattest-Event`, `X-Emirattest-Delivery` (unique id), `X-Emirattest-Timestamp` and `X-Emirattest-Signature: sha256=HMAC(secret, "<timestamp>.<body>")`; failures retry with backoff (0, 1, 5, 30, 120 min) and stay visible in the workspace.
+
+## Account recovery, SSO and operations (added)
+
+| Area | Endpoints |
+|---|---|
+| Recovery | `POST /auth/forgot` · `POST /auth/reset` · `POST /auth/verify/send` · `POST /auth/verify` |
+| SSO | `GET /auth/sso/config` · `GET /auth/sso/start` · `GET /auth/sso/callback` |
+| Account | `GET /account/search?q=` · `GET /account/calendar-link` · `GET /account/push/key` · `POST /account/push/{subscribe,unsubscribe}` · `GET /account/dsr` |
+| PDFs | `GET /cases/:id/quotes/:qid/pdf` · `GET /cases/:id/payments/:pid/receipt.pdf` · `GET /cases/:id/summary.pdf` |
+| Ops (admin) | `GET /ops/dsr` · `POST /ops/dsr/:id/process` · `GET/POST /ops/backups` · `POST /ops/retention/run` · `GET /ops/system` |
+| Health | `GET /healthz` · `GET /readyz` · `GET /metrics` (Bearer `METRICS_TOKEN`; hidden in production when unset) |

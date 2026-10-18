@@ -13,3 +13,14 @@ self.addEventListener('fetch', (e) => {
   }
   e.respondWith(caches.match(e.request).then((hit) => hit || fetch(e.request).then((r) => { if (r.ok) { const copy = r.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); } return r; })));
 });
+
+self.addEventListener('push', (e) => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch { d = { title: 'Emirattest', body: e.data ? e.data.text() : '' }; }
+  e.waitUntil(self.registration.showNotification(d.title || 'Emirattest', { body: d.body || '', icon: '/icons/icon-192.png', badge: '/icons/icon-192.png', data: { link: d.link || '/app' } }));
+});
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const link = (e.notification.data && e.notification.data.link) || '/app';
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((cs) => { const c = cs.find((x) => 'focus' in x); return c ? (c.navigate(link), c.focus()) : self.clients.openWindow(link); }));
+});
