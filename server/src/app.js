@@ -1,3 +1,4 @@
+import { enterprise } from './routes/enterprise.js';
 import { seoResponse, sitemap, robots, llmsIndex } from './lib/seo.js';
 import express from 'express';
 import fs from 'node:fs';
@@ -76,6 +77,7 @@ export function createApp() {
   app.use('/api/documents', documents);
   app.use('/api/payments', payments);
   app.use('/api/account', account);
+  app.use('/api/enterprise', enterprise);
   app.use('/api/org', org);
   app.use('/api/invites', invites);
   app.use('/api/provider', provider);

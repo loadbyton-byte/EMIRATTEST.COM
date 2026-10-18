@@ -1,3 +1,4 @@
+import { availability } from './readiness.js';
 import { all, get, run, insert, update, json, tx } from '../db.js';
 import { CATEGORIES, SERVICES, ROUTES, KB } from './catalog-data.js';
 import { todayStr, daysBetween, nowIso } from '../lib/util.js';
@@ -41,7 +42,7 @@ export function listServices({ category, q } = {}) {
   }
   return rows.map(serviceOut);
 }
-export const serviceOut = (s) => ({ ...s, requirements: json(s.requirements, []), regulated: !!s.regulated });
+export const serviceOut = (s) => ({ ...s, requirements: json(s.requirements, []), regulated: !!s.regulated, availability: availability(s.slug) });
 export const getService = (slugOrId) => {
   const s = typeof slugOrId === 'number' || /^\d+$/.test(String(slugOrId))
     ? get('SELECT * FROM services WHERE id = ?', Number(slugOrId)) : get('SELECT * FROM services WHERE slug = ?', slugOrId);

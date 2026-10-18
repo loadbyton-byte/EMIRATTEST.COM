@@ -1,3 +1,4 @@
+import { createSubscriptionPayment } from '../domain/payments.js';
 import express, { Router } from 'express';
 import crypto from 'node:crypto';
 import { all, get, insert, update, run, json, tx } from '../db.js';
@@ -60,7 +61,7 @@ org.get('/:id', (req, res) => {
   const spend = get("SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE org_id = ? AND status = 'verified'", id).s;
   const pendingApprovals = all("SELECT c.id, c.ref, c.title, q.total FROM cases c JOIN quotes q ON q.case_id = c.id AND q.status = 'awaiting_approval' WHERE c.org_id = ?", id);
   const credit = get("SELECT COALESCE(SUM(amount),0) AS s FROM payments WHERE org_id = ? AND method = 'credit_account' AND status = 'verified' AND (proof_note IS NULL OR proof_note NOT LIKE 'invoice:%')", id).s;
-  res.json({ org: o, my_role: m.role, my_limit: m.approval_limit, stats: { total_cases: rows.length, active: active.length, completed: done.length, rejected: rows.filter((c) => c.status === 'rejected').length, avg_turnaround_days: turn, spend: money(spend), credit_used: money(credit), credit_limit: o.credit_limit }, by_status: Object.entries(rows.reduce((a, c) => ({ ...a, [c.status]: (a[c.status] || 0) + 1 }), {})).map(([status, n]) => ({ status, label: STATUS[status]?.label, n })), pending_approvals: pendingApprovals, subscription: get("SELECT * FROM subscriptions WHERE org_id = ? AND status = 'active'", id) || null });
+  res.json({ org: o, my_role: m.role, my_limit: m.approval_limit, stats: { total_cases: rows.length, active: active.length, completed: done.length, rejected: rows.filter((c) => c.status === 'rejected').length, avg_turnaround_days: turn, spend: money(spend), credit_used: money(credit), credit_limit: o.credit_limit }, by_status: Object.entries(rows.reduce((a, c) => ({ ...a, [c.status]: (a[c.status] || 0) + 1 }), {})).map(([status, n]) => ({ status, label: STATUS[status]?.label, n })), pending_approvals: pendingApprovals, subscription: get("SELECT * FROM subscriptions WHERE org_id = ? AND status = 'active' AND (paid_through IS NULL OR paid_through >= date('now'))", id) || null });
 });
 
 // ---------- members ----------
@@ -194,15 +195,8 @@ org.get('/:id/reports/:type', (req, res) => {
 });
 
 // ---------- subscription ----------
-org.post('/:id/subscription', (req, res) => {
-  const { id } = guard(req, ['owner']);
-  if (get("SELECT 1 AS x FROM subscriptions WHERE org_id = ? AND status = 'active'", id)) throw conflict('Already subscribed');
-  const sid = insert('subscriptions', { org_id: id, plan: 'team', price_aed: 299 });
-  insert('ledger_entries', { org_id: id, account: 'subscription_revenue', amount: 299, state: 'recognised', memo: 'Business workspace — month 1', category: 'business' });
-  audit(req.user, 'subscription.start', 'org', id, {});
-  res.status(201).json({ subscription: get('SELECT * FROM subscriptions WHERE id = ?', sid), note: 'Cancelling never removes access to purchased completion evidence.' });
-});
-org.delete('/:id/subscription', (req, res) => { const { id } = guard(req, ['owner']); run("UPDATE subscriptions SET status = 'cancelled', cancelled_at = datetime('now') WHERE org_id = ? AND status = 'active'", id); res.json({ ok: true, note: 'Core tracking, price clarity and access to purchased completion evidence continue after cancellation.' }); });
+org.post('/:id/subscription', (req,res)=>{const {id}=guard(req,['owner']);res.status(201).json(createSubscriptionPayment(id,req.user));});
+org.delete('/:id/subscription', (req, res) => { const { id } = guard(req, ['owner']); run("UPDATE subscriptions SET status = 'cancelled', cancelled_at = datetime('now') WHERE org_id = ? AND status IN ('active','pending_payment')", id); res.json({ ok: true, note: 'Core tracking, price clarity and access to purchased completion evidence continue after cancellation.' }); });
 
 // ---------- integrations ----------
 org.get('/:id/integrations', (req, res) => {

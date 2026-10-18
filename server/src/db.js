@@ -17,6 +17,7 @@ export function openDb(file) {
     const has = handle.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
     if (!has) handle.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${def}`);
   }
+  handle.exec("UPDATE payments SET booking_id = CAST(substr(proof_note, 9) AS INTEGER) WHERE kind = 'booking' AND booking_id IS NULL AND proof_note GLOB 'booking:[0-9]*' AND EXISTS (SELECT 1 FROM bookings WHERE id = CAST(substr(payments.proof_note, 9) AS INTEGER))");
   return handle;
 }
 

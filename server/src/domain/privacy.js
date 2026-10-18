@@ -25,11 +25,15 @@ export function processDsr(dsr, staff, { note } = {}) {
   let result;
   if (dsr.kind === 'deletion') {
     const open = get(`SELECT COUNT(*) AS n FROM cases WHERE customer_id = ? AND status NOT IN (${inList(CLOSED_STATUSES)})`, u.id, ...CLOSED_STATUSES).n;
+    const activeBookings=get("SELECT COUNT(*) AS n FROM bookings WHERE user_id=? AND status NOT IN ('quoted','issued','cancelled')",u.id).n;
+    const pendingRefunds=get("SELECT COUNT(*) AS n FROM booking_refund_requests r JOIN bookings b ON b.id=r.booking_id WHERE b.user_id=? AND r.status IN ('requested','approved_1','approved')",u.id).n;
+    if(activeBookings||pendingRefunds)return {blocked:true,reason:'Open supplier bookings or refund obligations require resolution before deletion.'};
     if (open) return { blocked: true, reason: `${open} open case(s) must be completed or cancelled before the account can be deleted.` };
     tx(() => {
       const docs = all('SELECT id, storage_key FROM documents WHERE owner_user_id = ? AND deleted_at IS NULL', u.id);
       for (const d of docs) { removeFile(d.storage_key); update('documents', d.id, { deleted_at: nowIso(), storage_key: null, extracted: '{}', holder_name: null, doc_number: null }); }
       run("UPDATE profiles SET full_name = 'Deleted profile', dob = NULL, passport_no = NULL, emirates_id = NULL, email = NULL, phone = NULL, nationality = NULL, guardian_note = NULL, invite_token = NULL WHERE owner_user_id = ?", u.id);
+      run("UPDATE bookings SET details='{}' WHERE user_id=? AND status IN ('quoted','issued','cancelled')",u.id);
       run('DELETE FROM push_subscriptions WHERE user_id = ?', u.id);
       run('DELETE FROM user_tokens WHERE user_id = ?', u.id);
       run('DELETE FROM sso_identities WHERE user_id = ?', u.id);

@@ -52,15 +52,15 @@ export function Demo() {
 
 export function Pay() {
   const { token } = (window.location.pathname.match(/\/pay\/(.+)$/) && { token: window.location.pathname.split('/pay/')[1] }) || {};
-  const p = useApi(`/api/payments/${token}`); const [card, setCard] = useState('4242 4242 4242 4242'); const [res, setRes] = useState(null); const [run, busy] = useAction();
+  const p = useApi(`/api/payments/${token}`); const [bankRef,setBankRef]=useState(''); const [bankNote,setBankNote]=useState(''); const [card, setCard] = useState('4242 4242 4242 4242'); const [res, setRes] = useState(null); const [run, busy] = useAction();
   const pay = (e) => { e.preventDefault(); run(async () => { try { setRes(await post(`/api/payments/${token}/charge`, { card })); } catch (er) { setRes({ status: 'failed', error: er.message }); } }, { quiet: true }); };
   if (p.loading || p.error) return <div className="wrap section"><Loading state={p} /></div>;
   const d = p.data;
-  return <div className="wrap section" style={{ maxWidth: 520 }}><img src="/brand/primary-full-color.svg" alt="Emirattest" style={{ height: 52, marginBottom: 20 }} /><h1>Secure payment</h1>
+  return <div className="wrap section" style={{ maxWidth: 520 }}><img src="/brand/web-lockup.svg" alt="Emirattest" style={{ height: 52, marginBottom: 20 }} /><h1>Secure payment</h1>
     <Card><KVPay d={d} />
-      {(res?.status === 'verified' || d.status === 'verified') ? <><Alert kind="good"><b>Payment verified.</b> Receipt {res?.receipt_no || d.receipt_no}. Your case advances once the server has verified the payment.</Alert><Btn to="/app">Back to my workspace</Btn></> :
+      {d.status==='cancelled'?<Alert kind="warn">This payment request was cancelled.</Alert>:(res?.status === 'verified' || d.status === 'verified') ? <><Alert kind="good"><b>Payment verified.</b> Receipt {res?.receipt_no || d.receipt_no}. Follow the next action in your workspace; payment does not itself confirm supplier issuance.</Alert><Btn to={d.return_to||"/app"}>Back to my workspace</Btn></> :
         d.provider === 'mock' ? <form onSubmit={pay}><Alert kind="warn">Demo gateway — no real money moves. Use test card 4242 4242 4242 4242 (success) or 4000 0000 0000 0002 (declined).</Alert>{res?.status === 'failed' && <Alert kind="bad">{res.error}</Alert>}<Field label="Card number"><Input value={card} onChange={(e) => setCard(e.target.value)} inputMode="numeric" /></Field><div className="grid g2"><Field label="Expiry"><Input defaultValue="12/30" /></Field><Field label="CVC"><Input defaultValue="123" /></Field></div><Btn disabled={busy} style={{ width: '100%' }}>Pay AED {d.amount}</Btn></form> :
-        <Alert kind="info">This payment uses an external checkout (Stripe test mode). Return to your case and choose “Pay”.</Alert>}</Card></div>;
+        d.provider==='stripe'?<><p className="small muted">Card details are entered on the payment provider’s hosted checkout.</p><Btn disabled={busy} onClick={()=>run(async()=>{const x=await post(`/api/payments/${token}/stripe`);window.location.assign(x.url);})}>Continue to card checkout</Btn></>:<form onSubmit={e=>{e.preventDefault();run(async()=>{const x=await post(`/api/payments/${token}/bank-proof`,{reference:bankRef});setBankNote(x.message);},{ok:'Reference submitted for reconciliation'});}}><Alert kind="info">Request the verified transfer instructions from finance. Submitting a reference does not verify payment; finance reconciles the bank collection first.</Alert><Field label="Your bank transfer reference"><Input value={bankRef} onChange={e=>setBankRef(e.target.value)} required/></Field><Btn disabled={busy}>Submit transfer reference</Btn>{bankNote&&<p role="status" className="small mt">{bankNote}</p>}</form>}</Card></div>;
 }
 const KVPay = ({ d }) => <div className="row between mb"><div><div className="muted small">{d.ref}</div><b>{d.title}</b></div><div style={{ fontSize: '1.6rem', fontWeight: 700 }}>AED {d.amount}</div></div>;
 
