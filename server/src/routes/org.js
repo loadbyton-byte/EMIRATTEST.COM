@@ -10,6 +10,7 @@ import { createCase, caseSummary, STATUS, ACTIVE_STATUSES } from '../domain/case
 import { getService } from '../domain/catalog.js';
 import { emitOrgEvent, runWebhookQueue } from '../domain/webhooks.js';
 import { notify } from '../domain/notify.js';
+import { antivirusGate } from '../lib/clamav.js';
 import { storeDocument, MAX_UPLOAD, docOut } from '../domain/documents.js';
 import { config as _c } from '../config.js';
 
@@ -32,11 +33,12 @@ invites.post('/:token/consent', (req, res) => {
   audit(null, agree ? 'employee.consent' : 'employee.decline', 'profile', p.id, {});
   res.json({ ok: true, status: agree ? 'consented' : 'declined' });
 });
-invites.post('/:token/documents', rawUpload, (req, res) => {
+invites.post('/:token/documents', rawUpload, async (req, res) => {
   const p = get('SELECT * FROM profiles WHERE invite_token = ?', req.params.token);
   if (!p || p.consent_status !== 'consented') throw forbidden('Consent is required before uploading documents');
   const owner = get('SELECT * FROM users WHERE id = ?', p.owner_user_id);
   const q = req.query;
+  await antivirusGate(req.body);
   const d = storeDocument({ user: owner, profileId: p.id, kind: String(q.kind || 'other'), filename: String(q.filename || 'document'), buffer: req.body, meta: { holder_name: q.holder_name || p.full_name } });
   res.status(201).json({ document: docOut(d) });
 });

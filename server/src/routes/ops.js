@@ -1,3 +1,6 @@
+import { processDsr, applyRetention } from '../domain/privacy.js';
+import { createBackup, listBackups } from '../lib/backup.js';
+import { s3Enabled } from '../lib/objectstore.js';
 import { integrationStatus } from '../lib/integrations.js';
 import { Router } from 'express';
 import { all, get, insert, update, run, json, tx, getSetting, setSetting } from '../db.js';
@@ -244,4 +247,23 @@ ops.get('/settings', adminOnly, (req, res) => res.json({ settings: { refund_dual
 ops.put('/settings', adminOnly, (req, res) => { const b = validate(req.body, { refund_dual_threshold: 'number', opening_cash: 'number' }); Object.entries(b).forEach(([k, v]) => setSetting(k, v)); audit(req.user, 'settings.update', 'settings', null, b); res.json({ ok: true }); });
 ops.get('/outbox', adminOnly, (req, res) => res.json({ messages: all('SELECT id, channel, to_addr, subject, status, error, created_at, sent_at FROM outbox ORDER BY id DESC LIMIT 100') }));
 ops.post('/jobs/run', adminOnly, async (req, res) => { const sent = await flushOutbox(50); const hooks = await runWebhookQueue(50); res.json({ outbox_processed: sent, webhooks_processed: hooks }); });
+// ---- privacy requests, backups, retention, system health (admin) ----
+ops.get('/dsr', requireRole('admin', 'ops', 'support'), (_req, res) => res.json({ requests: all("SELECT r.*, u.email, u.name FROM dsr_requests r JOIN users u ON u.id = r.user_id ORDER BY r.status = 'open' DESC, r.id DESC LIMIT 100") }));
+ops.post('/dsr/:id/process', requireRole('admin', 'ops'), (req, res) => {
+  const b = validate(req.body, { note: 'string' });
+  const dsr = get('SELECT * FROM dsr_requests WHERE id = ?', Number(req.params.id));
+  if (!dsr) throw notFound('Request not found');
+  if (dsr.status !== 'open') throw conflict('Request already processed');
+  const out = processDsr(dsr, req.user, { note: b.note });
+  if (out.blocked) throw conflict(out.reason);
+  res.json(out);
+});
+ops.get('/backups', adminOnly, (_req, res) => res.json({ backups: listBackups(), remote: s3Enabled(), every_hours: config.backup.everyHours, keep: config.backup.keep }));
+ops.post('/backups', adminOnly, async (req, res) => { const out = await createBackup(); audit(req.user, 'backup.create', 'system', null, out); res.status(201).json(out); });
+ops.post('/retention/run', adminOnly, (req, res) => {
+  const b = validate(req.body, { dry_run: 'boolean' });
+  const n = applyRetention({ dryRun: !!b.dry_run });
+  res.json({ dry_run: !!b.dry_run, documents: n, retention_days: config.retentionDays });
+});
+ops.get('/system', adminOnly, (_req, res) => res.json({ jobs: all('SELECT * FROM job_runs ORDER BY name'), integrations: integrationStatus(whatsappStatus().mode), audit_chain: verifyAuditChain(), version: process.env.APP_VERSION || 'dev', node: process.version }));
 export const _op = { addDays, money, normPhone, run, sqlTs, businessHoursBetween, notifyMany, notifyRole, quoteOut, config };

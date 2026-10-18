@@ -7,6 +7,8 @@ import { audit } from '../lib/audit.js';
 import { caseAccess, loadCaseFor, orgRole, userOrgs, activeGrants } from '../domain/access.js';
 import { createCase, caseSummary, submitForReview, addEvent, addTask, completeTask, transition, STATUS, markFirstResponse } from '../domain/cases.js';
 import { estimate } from '../domain/pricing.js';
+import { quotationPdf, receiptPdf, caseSummaryPdf } from '../lib/pdf.js';
+import { antivirusGate } from '../lib/clamav.js';
 import { storeDocument, docOut, caseDocs, readinessCheck, MAX_UPLOAD } from '../domain/documents.js';
 import { eligibleProviders, providerMetrics, providerOut } from '../domain/providers.js';
 import { quoteOut, acceptQuote, rejectQuote } from '../domain/quotes.js';
@@ -85,12 +87,13 @@ cases.get('/:id', (req, res) => {
 cases.get('/:id/planner', (req, res) => { const { c } = loadCaseFor(req.user, req.params.id); res.json(deadlinePlan(c)); });
 cases.get('/:id/readiness', (req, res) => { const { c } = loadCaseFor(req.user, req.params.id, 'docs'); res.json(readinessCheck(c)); });
 
-cases.post('/:id/documents', rawUpload, (req, res) => {
+cases.post('/:id/documents', rawUpload, async (req, res) => {
   const { c } = loadCaseFor(req.user, req.params.id, 'act');
   if (!Buffer.isBuffer(req.body)) throw bad('Send the file as the raw request body (Content-Type application/octet-stream) with ?filename=');
   const q = req.query;
+  const av = await antivirusGate(req.body);
   const doc = storeDocument({ user: req.user, caseId: c.id, profileId: c.profile_id, kind: String(q.kind || 'other'), filename: String(q.filename || 'document'), buffer: req.body, role: ['original', 'supporting', 'derivative', 'working_copy'].includes(q.role) ? q.role : 'original', replacesId: q.replaces ? Number(q.replaces) : null,
-    meta: { holder_name: q.holder_name, doc_number: q.doc_number, issue_date: q.issue_date, expiry_date: q.expiry_date, issuing_authority: q.issuing_authority, issuing_country: q.issuing_country, pages_declared: q.pages_declared ? Number(q.pages_declared) : null, pages_uploaded: q.pages_uploaded ? Number(q.pages_uploaded) : null, purpose: q.purpose } });
+    meta: { scan_engine: av.engine, holder_name: q.holder_name, doc_number: q.doc_number, issue_date: q.issue_date, expiry_date: q.expiry_date, issuing_authority: q.issuing_authority, issuing_country: q.issuing_country, pages_declared: q.pages_declared ? Number(q.pages_declared) : null, pages_uploaded: q.pages_uploaded ? Number(q.pages_uploaded) : null, purpose: q.purpose } });
   addEvent(c.id, req.user, 'document_uploaded', { filename: doc.filename, kind: doc.kind, version: doc.version, receipt: `${doc.sha256.slice(0, 10)}` });
   if (c.status === 'correction_required' || c.status === 'customer_action_required') update('cases', c.id, { updated_at: nowIso() });
   res.status(201).json({ document: docOut(doc), receipt: { sha256: doc.sha256, size: doc.size, uploaded_at: doc.created_at, scan: doc.scan_status } });
@@ -195,5 +198,24 @@ cases.get('/:id/completion-pack', (req, res) => {
     timeline: d.events.map((e) => ({ at: e.ts, type: e.type, status: e.to_status, by: e.actor_label })) };
   res.setHeader('Content-Disposition', `attachment; filename="${c.ref}-completion-pack.json"`);
   res.json(pack);
+});
+// ---- PDFs: quotation, receipt, case summary (generated on request, never stored) ----
+const sendPdf = (res, name, buf) => { res.setHeader('Content-Type', 'application/pdf'); res.setHeader('Content-Disposition', `attachment; filename="${name}"`); res.setHeader('Cache-Control', 'private, no-store'); res.send(buf); };
+cases.get('/:id/quotes/:qid/pdf', async (req, res) => {
+  const { c, a } = loadCaseFor(req.user, req.params.id, 'finance');
+  const q = get('SELECT * FROM quotes WHERE id = ? AND case_id = ?', Number(req.params.qid), c.id);
+  if (!q || (q.status === 'draft' && !a.internal)) throw notFound('Quotation not found');
+  sendPdf(res, `${c.ref}-quotation-v${q.version}.pdf`, await quotationPdf({ quote: quoteOut(q), c, customer: get('SELECT name FROM users WHERE id = ?', c.customer_id) }));
+});
+cases.get('/:id/payments/:pid/receipt.pdf', async (req, res) => {
+  const { c } = loadCaseFor(req.user, req.params.id, 'finance');
+  const p = get('SELECT * FROM payments WHERE id = ? AND case_id = ?', Number(req.params.pid), c.id);
+  if (!p || p.status !== 'verified') throw notFound('Receipt not available until the payment is confirmed');
+  sendPdf(res, `${p.receipt_no || `receipt-${p.id}`}.pdf`, await receiptPdf({ payment: p, c, customer: get('SELECT name FROM users WHERE id = ?', p.user_id || c.customer_id) }));
+});
+cases.get('/:id/summary.pdf', async (req, res) => {
+  const { c, a } = loadCaseFor(req.user, req.params.id, 'docs');
+  const events = all('SELECT * FROM case_events WHERE case_id = ? ORDER BY id', c.id).filter((e) => a.internal || e.visibility === 'customer');
+  sendPdf(res, `${c.ref}-summary.pdf`, await caseSummaryPdf({ c, events, documents: caseDocs(c.id) }));
 });
 export const _c = { userOrgs, orgRole, notifyMany, completeTask, todayStr, normPhone, money, providerMetrics, providerOut, STATUS, tx };

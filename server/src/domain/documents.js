@@ -45,7 +45,7 @@ export function storeDocument({ user, caseId = null, profileId = null, kind = 'o
     case_id: caseId, profile_id: profileId, owner_user_id: user.id, kind, filename: safeName, mime: scan.mime, size: buffer.length, sha256: sha256(buffer),
     storage_key: scan.status === 'clean' ? key : null, version, replaces_id: replacesId, role, scan_status: scan.status, scan_note: scan.note,
     holder_name: meta.holder_name, doc_number: meta.doc_number, issue_date: meta.issue_date, expiry_date: meta.expiry_date, issuing_authority: meta.issuing_authority,
-    issuing_country: meta.issuing_country, pages_declared: meta.pages_declared, pages_uploaded: meta.pages_uploaded, purpose: meta.purpose,
+    issuing_country: meta.issuing_country, pages_declared: meta.pages_declared, pages_uploaded: meta.pages_uploaded, purpose: meta.purpose, scan_engine: meta.scan_engine || 'builtin',
   });
   audit(user, 'document.upload', 'document', id, { case: caseId, kind, size: buffer.length, scan: scan.status, sha256: sha256(buffer).slice(0, 12) });
   if (scan.status === 'blocked') throw new HttpError(422, `Upload blocked: ${scan.note}`, { document_id: id });

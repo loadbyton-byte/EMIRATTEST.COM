@@ -3,6 +3,7 @@ import { all, get, insert, update, json } from '../db.js';
 import { requireRole } from '../lib/auth.js';
 import { validate, bad, forbidden, notFound, todayStr, nowIso } from '../lib/util.js';
 import { recordCustody, openIncident } from '../domain/operations.js';
+import { antivirusGate } from '../lib/clamav.js';
 import { storeDocument, MAX_UPLOAD } from '../domain/documents.js';
 import { STATUS } from '../domain/cases.js';
 
@@ -44,9 +45,10 @@ agent.post('/events', (req, res) => {
   });
   res.status(results.every((r) => r.ok) ? 201 : 207).json({ results, synced_at: nowIso() });
 });
-agent.post('/events/:id/photo', rawUpload, (req, res) => {
+agent.post('/events/:id/photo', rawUpload, async (req, res) => {
   const ev = get('SELECT * FROM custody_events WHERE id = ? AND agent_user_id = ?', Number(req.params.id), req.user.id);
   if (!ev) throw notFound();
+  await antivirusGate(req.body);
   const d = storeDocument({ user: req.user, caseId: ev.case_id, kind: 'custody_photo', filename: String(req.query.filename || 'custody-photo.jpg'), buffer: req.body, role: 'supporting' });
   update('custody_events', ev.id, { photo_key: String(d.id) });
   res.status(201).json({ ok: true, note: 'A delivery photograph supports, but never replaces, the authorised recipient check.' });

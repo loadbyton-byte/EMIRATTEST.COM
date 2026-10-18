@@ -265,4 +265,31 @@ CREATE TABLE IF NOT EXISTS audit_log (
   entity TEXT, entity_id TEXT, detail TEXT, prev_hash TEXT, hash TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS user_tokens (
+  id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), kind TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE,
+  expires_at TEXT NOT NULL, used_at TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), endpoint TEXT UNIQUE NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL,
+  user_agent TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS sso_identities (
+  id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), issuer TEXT NOT NULL, subject TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE (issuer, subject)
+);
+CREATE TABLE IF NOT EXISTS job_runs (
+  name TEXT PRIMARY KEY, last_run_at TEXT, last_ok_at TEXT, status TEXT, detail TEXT
+);
 `;
+
+/** Columns added after the first release; applied idempotently on open. [table, column, definition] */
+export const COLUMNS = [
+  ['users', 'email_verified_at', 'TEXT'],
+  ['users', 'last_login_at', 'TEXT'],
+  ['users', 'anonymised_at', 'TEXT'],
+  ['documents', 'scan_engine', 'TEXT'],
+  ['documents', 'mirrored_at', 'TEXT'],
+  ['dsr_requests', 'processed_at', 'TEXT'],
+  ['dsr_requests', 'result', 'TEXT'],
+  ['outbox', 'attempts', 'INTEGER NOT NULL DEFAULT 0'],
+];

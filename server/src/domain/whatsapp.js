@@ -7,6 +7,7 @@ import { caseAccess } from './access.js';
 import { STATUS, addEvent, addTask } from './cases.js';
 import { answer } from './ai.js';
 import { storeDocument } from './documents.js';
+import { antivirusGate } from '../lib/clamav.js';
 import { acceptQuote } from './quotes.js';
 import { notifyRole } from './notify.js';
 import { EMIRATES } from './catalog-data.js';
@@ -171,6 +172,7 @@ export async function handleInbound({ channel = 'whatsapp', waId, name, text = '
     if (!target && user) target = get("SELECT * FROM cases WHERE customer_id = ? AND status IN ('customer_action_required','correction_required') ORDER BY updated_at DESC LIMIT 1", user.id);
     if (!target || !user) { setState(c, 'upload_ref', {}); say(m.askPickRef); return; }
     try {
+      await antivirusGate(media.buffer);
       const d = storeDocument({ user, caseId: target.id, profileId: target.profile_id, kind: 'other', filename: media.filename || `whatsapp-${Date.now()}.jpg`, buffer: media.buffer, meta: {} });
       addEvent(target.id, user, 'document_uploaded', { filename: d.filename, via: 'whatsapp' });
       setState(c, 'upload', { caseId: target.id, ref: target.ref });

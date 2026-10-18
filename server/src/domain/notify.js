@@ -2,6 +2,7 @@ import { all, get, insert, update, run } from '../db.js';
 import { config } from '../config.js';
 import { nowIso, waIdOf } from '../lib/util.js';
 import { mailMode, sendMail } from '../lib/mailer.js';
+import { pushEnabled, pushToUser } from '../lib/push.js';
 
 /** Create an in-app notification and queue email/WhatsApp according to the recipient's consent and channel availability. */
 export function notify(userId, { title, body, link, kind = 'info', email = true, whatsapp = false }) {
@@ -10,6 +11,9 @@ export function notify(userId, { title, body, link, kind = 'info', email = true,
   insert('notifications', { user_id: userId, kind, title, body: body || null, link: link || null });
   if (email && u.email && !u.email.endsWith('.example')) {
     insert('outbox', { channel: 'email', to_addr: u.email, subject: title, body: renderEmail(u, title, body, link), user_id: userId });
+  }
+  if (pushEnabled() && get('SELECT 1 AS x FROM push_subscriptions WHERE user_id = ? LIMIT 1', userId)) {
+    insert('outbox', { channel: 'push', to_addr: String(userId), subject: title, body: JSON.stringify({ body: body || '', link: link || '/app' }), user_id: userId });
   }
   if (whatsapp && u.phone) {
     const consent = get("SELECT granted FROM consents WHERE user_id = ? AND kind = 'renewal_reminders'", userId);
@@ -34,6 +38,10 @@ export async function flushOutbox(limit = 25) {
         if (mailMode() === 'none') { update('outbox', r.id, { status: 'queued_no_transport' }); continue; }
         const out = await sendMail({ to: r.to_addr, subject: r.subject, html: r.body });
         update('outbox', r.id, out.sent ? { status: 'sent', provider_ref: out.id, sent_at: nowIso() } : { status: 'failed', error: out.error || 'send failed' });
+      } else if (r.channel === 'push') {
+        const p = JSON.parse(r.body || '{}');
+        const out = await pushToUser(Number(r.to_addr), { title: r.subject, body: p.body, link: p.link });
+        update('outbox', r.id, { status: out.sent ? 'sent' : 'failed', error: out.sent ? null : 'no live subscription', sent_at: nowIso() });
       } else if (r.channel === 'whatsapp') {
         const { sendWhatsAppText } = await import('./whatsapp-transport.js');
         const out = await sendWhatsAppText(r.to_addr, r.body);

@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from './config.js';
-import { SCHEMA } from './schema.js';
+import { SCHEMA, COLUMNS } from './schema.js';
 
 let handle = null;
 
@@ -13,6 +13,10 @@ export function openDb(file) {
   handle = new DatabaseSync(target);
   handle.exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;');
   handle.exec(SCHEMA);
+  for (const [table, column, def] of COLUMNS) {
+    const has = handle.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
+    if (!has) handle.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${def}`);
+  }
   return handle;
 }
 

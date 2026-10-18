@@ -9,6 +9,11 @@ import { providerOut } from '../domain/providers.js';
 import { createBookingPayment } from '../domain/payments.js';
 import { notify } from '../domain/notify.js';
 import { caseDetail } from './cases.js';
+import { config } from '../config.js';
+import { pushEnabled } from '../lib/push.js';
+import { caseAccess } from '../domain/access.js';
+import { listServices } from '../domain/catalog.js';
+import { hmac } from '../lib/util.js';
 
 export const account = Router();
 account.use(requireAuth);
@@ -84,6 +89,36 @@ account.get('/readiness-records', (req, res) => {
   const docs = all(`SELECT d.*, p.full_name FROM documents d LEFT JOIN profiles p ON p.id = d.profile_id WHERE d.profile_id IN (${pids.map(() => '?').join(',')}) AND d.deleted_at IS NULL AND d.role = 'original' ORDER BY d.created_at DESC`, ...pids);
   res.json({ disclaimer: 'A readiness record is purpose-specific. It is not a government identity, a new official credential or a universal acceptance certificate. Acceptance periods are set by the receiving institution.', records: docs.map((d) => ({ id: d.id, holder: d.full_name, kind: d.kind, filename: d.filename, purpose: d.purpose, issuing_authority: d.issuing_authority, issuing_country: d.issuing_country, doc_number: d.doc_number, issue_date: d.issue_date, expiry_date: d.expiry_date, expired: !!(d.expiry_date && d.expiry_date < today), verification: d.verification_method ? { method: d.verification_method, result: d.verification_result, source: d.verification_source } : null, confirmed: !!d.confirmed, case_id: d.case_id, issues: json(d.issues, []) })) });
 });
+
+// ---------- web push ----------
+account.get('/push/key', (_req, res) => res.json({ enabled: pushEnabled(), publicKey: pushEnabled() ? config.push.publicKey : null }));
+account.post('/push/subscribe', (req, res) => {
+  if (!pushEnabled()) throw conflict('Push notifications are not enabled on this server');
+  const b = req.body || {};
+  if (typeof b.endpoint !== 'string' || !/^https:\/\//.test(b.endpoint) || !b.keys?.p256dh || !b.keys?.auth) throw bad('Invalid push subscription');
+  run('DELETE FROM push_subscriptions WHERE endpoint = ?', b.endpoint);
+  insert('push_subscriptions', { user_id: req.user.id, endpoint: b.endpoint, p256dh: String(b.keys.p256dh), auth: String(b.keys.auth), user_agent: String(req.headers['user-agent'] || '').slice(0, 200) });
+  res.status(201).json({ ok: true });
+});
+account.post('/push/unsubscribe', (req, res) => { run('DELETE FROM push_subscriptions WHERE user_id = ? AND endpoint = ?', req.user.id, String(req.body?.endpoint || '')); res.json({ ok: true }); });
+
+// ---------- search (only records the caller may open) ----------
+account.get('/search', (req, res) => {
+  const q = String(req.query.q || '').trim();
+  if (q.length < 2) return res.json({ cases: [], documents: [], services: [] });
+  const like = `%${q.replace(/[%_]/g, '')}%`;
+  const caseRows = all('SELECT * FROM cases WHERE ref LIKE ? OR title LIKE ? OR client_ref LIKE ? OR client_alias LIKE ? ORDER BY updated_at DESC LIMIT 60', like, like, like, like)
+    .filter((c) => caseAccess(req.user, c)).slice(0, 15).map((c) => ({ id: c.id, ref: c.ref, title: c.title, status: c.status }));
+  const docRows = all('SELECT d.id, d.filename, d.kind, d.case_id, d.profile_id FROM documents d WHERE d.deleted_at IS NULL AND (d.filename LIKE ? OR d.doc_number LIKE ? OR d.holder_name LIKE ?) ORDER BY d.id DESC LIMIT 80', like, like, like)
+    .filter((d) => (d.case_id ? caseAccess(req.user, get('SELECT * FROM cases WHERE id = ?', d.case_id)) : (() => { const pa = profileAccess(req.user, get('SELECT * FROM profiles WHERE id = ?', d.profile_id)); return pa && !pa.limited; })()))
+    .slice(0, 15).map((d) => ({ id: d.id, filename: d.filename, kind: d.kind, case_id: d.case_id }));
+  res.json({ cases: caseRows, documents: docRows, services: listServices({ q }).slice(0, 8).map((s) => ({ slug: s.slug, name_en: s.name_en, name_ar: s.name_ar })) });
+});
+
+// ---------- calendar feed (ICS) ----------
+const feedToken = (uid) => `${uid}.${hmac(`ics:${uid}`)}`;
+account.get('/calendar-link', (req, res) => res.json({ url: `${config.baseUrl}/api/public/calendar/${feedToken(req.user.id)}.ics`, note: 'Anyone with this link can see your appointment and reminder dates. Do not share it.' }));
+account.get('/dsr', (req, res) => res.json({ requests: all('SELECT id, kind, status, note, result, created_at, resolved_at FROM dsr_requests WHERE user_id = ? ORDER BY id DESC', req.user.id) }));
 
 account.post('/dsr', (req, res) => {
   const b = validate(req.body, { kind: ['access', 'export', 'correction', 'deletion'], note: 'string' });

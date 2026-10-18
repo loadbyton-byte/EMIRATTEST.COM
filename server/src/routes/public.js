@@ -10,7 +10,7 @@ import { COUNTRIES, EMIRATES, COURIER_FEE, READINESS_REVIEW_FEE } from '../domai
 import { deadlinePlan } from '../domain/planner.js';
 import { STATUS } from '../domain/cases.js';
 import { whatsappStatus } from '../domain/whatsapp-transport.js';
-import { validate, bad, notFound, normPhone, nowIso } from '../lib/util.js';
+import { validate, bad, notFound, normPhone, nowIso, todayStr, hmac, safeEqual } from '../lib/util.js';
 import { rateLimit } from '../lib/auth.js';
 import { notifyRole } from '../domain/notify.js';
 import { integrationStatus } from '../lib/integrations.js';
@@ -71,4 +71,26 @@ pub.post('/track', rateLimit({ windowMs: 60000, max: 10, name: 'track' }), (req,
 pub.post('/webhook-echo', (req, res) => {
   if (!config.demoMode) throw notFound();
   res.json({ received: true, signature_present: !!req.headers['x-emirattest-signature'] });
+});
+
+// ---- personal calendar feed (ICS): appointments, saved reminders and case target dates ----
+const icsText = (t) => String(t ?? '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+const icsDate = (d) => String(d).slice(0, 10).replace(/-/g, '');
+pub.get('/calendar/:token.ics', (req, res) => {
+  const [uid, sig] = String(req.params.token).split('.');
+  if (!uid || !sig || !safeEqual(sig, hmac(`ics:${uid}`))) throw notFound();
+  const user = get("SELECT id FROM users WHERE id = ? AND status = 'active'", Number(uid));
+  if (!user) throw notFound();
+  const ev = [];
+  for (const a of all("SELECT * FROM appointments WHERE user_id = ? AND status = 'booked'", user.id)) {
+    const start = new Date(String(a.at).replace(' ', 'T') + (a.at.includes('Z') ? '' : 'Z'));
+    const fmt = (d) => d.toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
+    ev.push(['BEGIN:VEVENT', `UID:appt-${a.id}@emirattest`, `DTSTAMP:${fmt(new Date())}`, `DTSTART:${fmt(start)}`, `DTEND:${fmt(new Date(start.getTime() + 3600000))}`, `SUMMARY:${icsText(`Emirattest: ${a.kind.replace(/_/g, ' ')}`)}`, `LOCATION:${icsText(a.location || '')}`, 'END:VEVENT']);
+  }
+  for (const r of all("SELECT * FROM reminders WHERE user_id = ? AND status != 'dismissed'", user.id)) ev.push(['BEGIN:VEVENT', `UID:rem-${r.id}@emirattest`, `DTSTAMP:${icsDate(todayStr())}T000000Z`, `DTSTART;VALUE=DATE:${icsDate(r.due_date)}`, `SUMMARY:${icsText(r.title)}`, 'END:VEVENT']);
+  for (const c of all("SELECT * FROM cases WHERE customer_id = ? AND target_date IS NOT NULL AND status NOT IN ('completed','dispatched','delivered','cancelled','refunded')", user.id)) ev.push(['BEGIN:VEVENT', `UID:case-${c.id}@emirattest`, `DTSTAMP:${icsDate(todayStr())}T000000Z`, `DTSTART;VALUE=DATE:${icsDate(c.target_date)}`, `SUMMARY:${icsText(`Target date — ${c.title} (${c.ref})`)}`, 'END:VEVENT']);
+  const body = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Emirattest//EN', 'CALSCALE:GREGORIAN', 'X-WR-CALNAME:Emirattest', ...ev.flat(), 'END:VCALENDAR'].join('\r\n') + '\r\n';
+  res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+  res.setHeader('Cache-Control', 'private, max-age=300');
+  res.send(body);
 });

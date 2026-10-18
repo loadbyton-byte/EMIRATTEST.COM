@@ -3,7 +3,10 @@ import { get, update, all, json } from '../db.js';
 import { requireAuth, isStaff } from '../lib/auth.js';
 import { validate, bad, forbidden, notFound, conflict, HttpError } from '../lib/util.js';
 import { caseAccess, profileAccess } from '../domain/access.js';
-import { signedUrl, checkSigned, readFileBytes, logAccess, docOut, readinessCheck, recordVerification } from '../domain/documents.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { restoreFromMirror } from '../lib/objectstore.js';
+import { UPLOAD_DIR, signedUrl, checkSigned, readFileBytes, logAccess, docOut, readinessCheck, recordVerification } from '../domain/documents.js';
 import { extractDocument } from '../domain/ai.js';
 import { audit } from '../lib/audit.js';
 import { authenticate } from '../lib/auth.js';
@@ -25,13 +28,14 @@ const loadDoc = (user, id) => {
 };
 
 // File download via expiring signed link. Link is bound to a user id; session still has to match.
-documents.get('/:id/file', (req, res) => {
+documents.get('/:id/file', async (req, res) => {
   const d = get('SELECT * FROM documents WHERE id = ?', Number(req.params.id));
   if (!d || !checkSigned(d.id, req.query.u, req.query.e, req.query.s)) throw new HttpError(403, 'Link expired or invalid');
   if (!req.user || String(req.user.id) !== String(req.query.u)) throw new HttpError(401, 'Sign in as the recipient of this link');
   const acc = docAccess(req.user, d); if (!acc) throw notFound('Document not found');
   logAccess(d.id, req.user, 'download', req.query.purpose);
   audit(req.user, 'document.download', 'document', d.id, { case: d.case_id });
+  if (d.storage_key && !fs.existsSync(path.join(UPLOAD_DIR(), d.storage_key))) await restoreFromMirror(d.storage_key);
   const buf = readFileBytes(d);
   res.setHeader('Content-Type', d.mime || 'application/octet-stream');
   res.setHeader('Content-Disposition', `inline; filename="${d.filename.replace(/"/g, '')}"`);
