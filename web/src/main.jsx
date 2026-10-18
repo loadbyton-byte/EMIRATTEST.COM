@@ -10,3 +10,4 @@ class Boundary extends React.Component {
 }
 createRoot(document.getElementById('root')).render(<Boundary><App /></Boundary>);
 import './experience.css';
+import './knowledge.css';

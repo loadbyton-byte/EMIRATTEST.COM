@@ -56,3 +56,11 @@ Development with hot reload: `npm run dev` (web on :5173, API on :8787). Tests: 
 ## Documentation
 
 [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) · [`API.md`](docs/API.md) · [`WHATSAPP.md`](docs/WHATSAPP.md) · [`ANDROID.md`](docs/ANDROID.md) · [`DEPLOY.md`](docs/DEPLOY.md) · [`INTEGRATIONS.md`](docs/INTEGRATIONS.md)
+
+## Public guidance and search metadata
+
+The knowledge centre is at `/guides`; the country/territory directory is at `/countries`. Published procedural summaries carry source links, a fixed editorial source-check date and a 30-day review-due state. Unreviewed country entries do not assert a procedure and are excluded from the sitemap. These pages are not individual legal advice or a claim of support in every jurisdiction.
+
+Set `SEO_BASE_URL` to the production canonical origin. The Node server supplies article text and metadata in initial HTML, `/sitemap.xml`, `/robots.txt` and `/llms.txt`. Deploy with the supplied Docker/Node runtime, including `shared/`; a static-only Vite deployment does not run those server routes. Search metadata is an implementation foundation, not a guarantee of ranking or AI citation.
+
+See `docs/KNOWLEDGE-SEO-REVIEW.md` for scope, source limitations and verification. Browser smoke coverage includes the new public pages; run the existing CI workflow for Chromium checks.
