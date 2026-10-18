@@ -1,3 +1,4 @@
+import { seoResponse, sitemap, robots, llmsIndex } from './lib/seo.js';
 import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -84,10 +85,23 @@ export function createApp() {
   app.use('/api/v1', v1);
   app.use('/api', (_req, _res, next) => next(new HttpError(404, 'Unknown API route')));
 
+  app.get('/sitemap.xml', (_req, res) => res.type('application/xml').send(sitemap()));
+  app.get('/robots.txt', (_req, res) => res.type('text/plain').send(robots()));
+  app.get('/llms.txt', (_req, res) => res.type('text/plain').send(llmsIndex()));
+
+  app.use((req, res, next) => {
+    if (req.method === 'GET' && req.path.length > 1 && /\/$/.test(req.path) && !req.path.startsWith('/api')) return res.redirect(301, req.path.replace(/\/+$/, '') + (req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''));
+    next();
+  });
   // Built web app (production / demo hosting)
   if (fs.existsSync(path.join(config.webDist, 'index.html'))) {
     app.use(express.static(config.webDist, { maxAge: '1h', index: false, setHeaders: (res, p) => { if (p.endsWith('sw.js') || p.endsWith('index.html')) res.setHeader('Cache-Control', 'no-cache'); } }));
-    app.get(/^(?!\/api\/).*/, (_req, res) => res.sendFile(path.join(config.webDist, 'index.html')));
+    app.get(/^(?!\/api\/).*/, (req, res) => {
+      const {html, seo} = seoResponse(req.path, fs.readFileSync(path.join(config.webDist, 'index.html'), 'utf8'));
+      res.setHeader('Cache-Control', 'no-cache');
+      if (seo.noindex) res.setHeader('X-Robots-Tag', 'noindex, follow');
+      res.status(seo.found ? 200 : 404).type('html').send(html);
+    });
   }
 
   // eslint-disable-next-line no-unused-vars

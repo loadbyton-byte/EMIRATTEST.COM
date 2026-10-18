@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { Fragment, cloneElement, isValidElement, createContext, useCallback, useContext, useEffect, useId, useRef, useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import { api, money as fmoney } from './api.js';
 
@@ -66,22 +66,44 @@ export const Badge = ({ kind = '', children }) => <span className={`badge ${kind
 export const Alert = ({ kind = '', children }) => <div className={`alert ${kind}`}>{children}</div>;
 export const Stat = ({ label, value, sub, kind = '' }) => <div className={`stat ${kind}`}><div className="v">{value}</div><div className="l">{label}</div>{sub && <div className="s muted">{sub}</div>}</div>;
 export const Money = ({ v, cur }) => <span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmoney(v, cur)}</span>;
-export function Field({ label, hint, error, children }) { return <div className="field">{label && <label>{label}</label>}{children}{hint && <span className="hint">{hint}</span>}{error && <span className="err">{error}</span>}</div>; }
+export function Field({ label, hint, error, children }) {
+  const generated = useId();
+  const control = isValidElement(children) && ([Input, Select, Textarea, 'input', 'select', 'textarea'].includes(children.type));
+  const id = control ? children.props.id || generated : undefined;
+  const described = [control && children.props['aria-describedby'], hint && `${generated}-hint`, error && `${generated}-error`].filter(Boolean).join(' ');
+  return <div className="field">{label && <label htmlFor={id}>{label}</label>}{control ? cloneElement(children, { id, 'aria-describedby': described || undefined, 'aria-invalid': error ? true : undefined }) : children}{hint && <span id={`${generated}-hint`} className="hint">{hint}</span>}{error && <span id={`${generated}-error`} className="err" role="alert">{error}</span>}</div>;
+}
 export const Input = (p) => <input className="input" {...p} />;
 export const Select = ({ children, ...p }) => <select className="input" {...p}>{children}</select>;
 export const Textarea = (p) => <textarea className="input" {...p} />;
 export const Btn = ({ kind = '', size = '', children, to, ...p }) => to ? <Link className={`btn ${kind} ${size}`} to={to} {...p}>{children}</Link> : <button className={`btn ${kind} ${size}`} {...p}>{children}</button>;
 export function Modal({ title, onClose, children, wide }) {
-  useEffect(() => { const h = (e) => e.key === 'Escape' && onClose(); window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [onClose]);
-  return <div className="modal-back" onMouseDown={(e) => e.target === e.currentTarget && onClose()}><div className="modal" role="dialog" aria-modal="true" aria-label={title} style={wide ? { width: 'min(820px,100%)' } : undefined}><div className="row between"><h3>{title}</h3><button className="btn ghost sm" onClick={onClose} aria-label="Close"><Icon name="x" size={16} /></button></div>{children}</div></div>;
+  const dialog = useRef(null); const close = useRef(onClose); close.current = onClose;
+  useEffect(() => {
+    const previous = document.activeElement; const overflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const controls = () => [...dialog.current.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex="0"]')].filter(el => el.getClientRects().length);
+    (controls()[0] || dialog.current).focus();
+    const handle = e => {
+      if (e.key === 'Escape') { e.preventDefault(); close.current(); }
+      if (e.key !== 'Tab') return;
+      const items = controls(); if (!items.length) { e.preventDefault(); dialog.current.focus(); return; }
+      const first = items[0], last = items.at(-1);
+      if (e.shiftKey && (document.activeElement === first || !dialog.current.contains(document.activeElement))) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && (document.activeElement === last || !dialog.current.contains(document.activeElement))) { e.preventDefault(); first.focus(); }
+    };
+    document.addEventListener('keydown', handle);
+    return () => { document.removeEventListener('keydown', handle); document.body.style.overflow = overflow; if (previous?.isConnected) previous.focus(); };
+  }, []);
+  return <div className="modal-back" onMouseDown={e => e.target === e.currentTarget && onClose()}><div ref={dialog} tabIndex={-1} className="modal" role="dialog" aria-modal="true" aria-label={title} style={wide ? { width: 'min(820px,100%)' } : undefined}><div className="row between"><h3>{title}</h3><button className="btn ghost sm" onClick={onClose} aria-label="Close"><Icon name="x" size={16} /></button></div>{children}</div></div>;
 }
 export const Tabs = ({ tabs, value, onChange }) => <div className="tabs" role="tablist">{tabs.map(([k, l]) => <button key={k} role="tab" aria-selected={value === k} className={value === k ? 'on' : ''} onClick={() => onChange(k)}>{l}</button>)}</div>;
 export function Table({ cols, rows, onRow, empty = 'Nothing to show' }) {
   if (!rows?.length) return <Empty>{empty}</Empty>;
-  return <div className="tablewrap"><table><thead><tr>{cols.map((c) => <th key={c.k || c.h} className={c.num ? 'num' : ''}>{c.h}</th>)}</tr></thead><tbody>{rows.map((r, i) => <tr key={r.id ?? i} className={onRow ? 'click' : ''} onClick={onRow ? () => onRow(r) : undefined}>{cols.map((c) => <td key={c.k || c.h} className={c.num ? 'num' : ''}>{c.r ? c.r(r) : r[c.k]}</td>)}</tr>)}</tbody></table></div>;
+  return <div className="tablewrap"><table><thead><tr>{cols.map((c) => <th scope="col" key={c.k || c.h} className={c.num ? 'num' : ''}>{c.h}</th>)}</tr></thead><tbody>{rows.map((r, i) => <tr key={r.id ?? i} className={onRow ? 'click' : ''} tabIndex={onRow ? 0 : undefined} onKeyDown={onRow ? e => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onRow(r); } } : undefined} onClick={onRow ? e => { if (!e.target.closest('button,a,input,select,textarea')) onRow(r); } : undefined}>{cols.map((c) => <td key={c.k || c.h} className={c.num ? 'num' : ''}>{c.r ? c.r(r) : r[c.k]}</td>)}</tr>)}</tbody></table></div>;
 }
 export const PageHead = ({ title, children, sub }) => <div className="pagehead"><div><h1>{title}</h1>{sub && <div className="muted">{sub}</div>}</div><div className="row">{children}</div></div>;
-export const KV = ({ items }) => <dl className="kv">{items.filter(Boolean).map(([k, v]) => <><dt key={`k${k}`}>{k}</dt><dd key={`v${k}`}>{v ?? '—'}</dd></>)}</dl>;
+export const KV = ({ items }) => <dl className="kv">{items.filter(Boolean).map(([k, v]) => <Fragment key={k}><dt>{k}</dt><dd>{v ?? '—'}</dd></Fragment>)}</dl>;
 
 /* ---------------- charts (SVG, no dependency) ---------------- */
 export function BarChart({ data, height = 160, color = 'var(--green)', fmt = (v) => v }) {

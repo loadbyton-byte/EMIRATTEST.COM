@@ -12,3 +12,7 @@ Original AI-generated editorial images, made using the built-in image generation
 Prompt set: candid practical service moments; realistic anatomy and skin texture; natural morning or afternoon light; limestone, cream, green and sandstone palette; cinematic editorial photography; no readable personal data, logos, government seals, holograms or tourism collages. Geography is wider than Dubai's skyline: east-coast mountains, residential communities and Al Ain's inland oasis setting.
 
 No claim of offices or pickup availability in the depicted places is implied. Customers check availability and charges against their actual quotation.
+
+Second pass: original generated `document-detail.webp` shows practical degree/transcript review, and `business-documents.webp` shows a corporate document consultation with Abu Dhabi waterfront/mangrove context. Built-in generation prompts used natural cinematic light, realistic people and hands, understated stationery and illegible document content. Used for the knowledge centre and service articles. These are illustrative generated scenes, not actual staff or client photographs.
+
+`web-lockup.svg` and `web-lockup-dark.svg` retain the existing outlined letter shapes, colour blend and seal. The browser-specific lockups align wordmark and tagline to a common left/right measure, remove excessive canvas padding, and set a deliberate vertical gap. Original master SVGs remain available.
