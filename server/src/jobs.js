@@ -40,8 +40,12 @@ async function tracked(name, everyMs, fn) {
     return null;
   }
 }
+export function expireSubscriptions(){
+ const rows=all("SELECT id,org_id FROM subscriptions WHERE status='active' AND paid_through IS NOT NULL AND paid_through < ?",todayStr());
+ for(const s of rows){update('subscriptions',s.id,{status:'expired'});if(!get("SELECT id FROM subscriptions WHERE org_id=? AND status='active'",s.org_id))update('orgs',s.org_id,{tier:'per_case'});}return rows.length;
+}
 export async function tick() {
-  const out = { quotes_expired: expireQuotes(), reminders: generateReminderNotices(), outbox: await flushOutbox(), webhooks: await runWebhookQueue() };
+  const out = { subscriptions_expired:expireSubscriptions(), quotes_expired: expireQuotes(), reminders: generateReminderNotices(), outbox: await flushOutbox(), webhooks: await runWebhookQueue() };
   out.mirrored = await tracked('s3_mirror', 0, mirrorPending);
   out.backup = await tracked('backup', config.backup.everyHours * 3600000, createBackup);
   out.retention = await tracked('retention', 24 * 3600000, () => applyRetention());

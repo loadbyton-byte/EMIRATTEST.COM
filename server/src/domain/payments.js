@@ -1,3 +1,5 @@
+import { assertOperational } from './readiness.js';
+import { bookingEvent } from './bookings.js';
 import crypto from 'node:crypto';
 import { all, get, insert, update, run, json, tx, getSetting } from '../db.js';
 import { config } from '../config.js';
@@ -9,6 +11,9 @@ const receiptNo = () => `RC-${String(config.now().getUTCFullYear()).slice(2)}-${
 
 export function createPayment({ c, quote, user, method }) {
   const q = typeof quote === 'object' ? quote : get('SELECT * FROM quotes WHERE id = ?', quote);
+  assertOperational(get('SELECT slug FROM services WHERE id = ?',c.service_id).slug,c.provider_id);
+  const pending=get("SELECT * FROM payments WHERE quote_id=? AND user_id=? AND status='pending'",q.id,user.id);
+  if(pending)return {payment:pending,checkout:{url:`/pay/${pending.token}`,provider:pending.provider}};
   const token = randomToken(16);
   const provider = method === 'card' && config.stripe.key ? 'stripe' : method === 'card' && config.demoMode ? 'mock' : 'manual';
   const id = insert('payments', { case_id: c.id, quote_id: q.id, user_id: user.id, org_id: c.org_id, kind: q.kind === 'variation' ? 'variation' : 'quote', method, provider, token, amount: q.total, status: 'pending' });
@@ -21,7 +26,7 @@ export function createPayment({ c, quote, user, method }) {
 /** Optional Stripe Checkout (test mode) session. Falls back to the built-in mock gateway page. */
 export async function startStripeCheckout(payment, successUrl, cancelUrl) {
   if (!config.stripe.key) return null;
-  const body = new URLSearchParams({ mode: 'payment', success_url: successUrl, cancel_url: cancelUrl, 'line_items[0][quantity]': '1', 'line_items[0][price_data][currency]': 'aed', 'line_items[0][price_data][unit_amount]': String(Math.round(payment.amount * 100)), 'line_items[0][price_data][product_data][name]': `Emirattest case payment #${payment.case_id}`, 'metadata[payment_id]': String(payment.id), 'metadata[token]': payment.token });
+  const body = new URLSearchParams({ mode: 'payment', success_url: successUrl, cancel_url: cancelUrl, 'line_items[0][quantity]': '1', 'line_items[0][price_data][currency]': 'aed', 'line_items[0][price_data][unit_amount]': String(Math.round(payment.amount * 100)), 'line_items[0][price_data][product_data][name]': `Emirattest ${payment.kind} payment #${payment.id}`, 'metadata[payment_id]': String(payment.id), 'metadata[token]': payment.token });
   const r = await fetch('https://api.stripe.com/v1/checkout/sessions', { method: 'POST', headers: { Authorization: `Bearer ${config.stripe.key}`, 'Content-Type': 'application/x-www-form-urlencoded' }, body });
   const j = await r.json();
   if (!r.ok) throw new Error(j.error?.message || 'Stripe error');
@@ -49,7 +54,9 @@ export function verifyPayment(paymentId, providerRef) {
   return tx(() => {
     const p = get('SELECT * FROM payments WHERE id = ?', paymentId);
     if (!p) throw notFound('Payment not found');
-    if (p.status === 'verified') return p;
+    if (['verified','partially_refunded','refunded'].includes(p.status)) return p;
+    if(providerRef?.startsWith('bank:')){if(get("SELECT id FROM payments WHERE bank_reference=? AND id!=?",providerRef.slice(5),p.id))throw conflict('This bank reference has already been reconciled');update('payments',p.id,{bank_reference:providerRef.slice(5)});}
+    if (p.kind === 'subscription') return verifySubscriptionPayment(p,providerRef);
     if (p.kind === 'booking') return verifyBookingPayment(p, providerRef);
     const q = get('SELECT * FROM quotes WHERE id = ?', p.quote_id);
     const c = get('SELECT * FROM cases WHERE id = ?', p.case_id);
@@ -86,7 +93,7 @@ export function approveRefund(refundId, user) {
   const r = get('SELECT * FROM refunds WHERE id = ?', refundId);
   if (!r) throw notFound('Refund not found');
   if (!['finance', 'admin'].includes(user.role)) throw forbidden('Only finance or admin can approve refunds');
-  if (r.requested_by === user.id && user.role !== 'admin') throw forbidden('You cannot approve a refund you requested');
+  if (r.requested_by === user.id) throw forbidden('You cannot approve a refund you requested');
   const threshold = Number(getSetting('refund_dual_threshold', 300));
   if (r.status === 'requested') {
     if (r.amount < threshold) return finalizeRefund(r, user, { approver1: user.id });
@@ -100,37 +107,75 @@ export function approveRefund(refundId, user) {
   }
   throw conflict(`Refund is ${r.status}`);
 }
-function finalizeRefund(r, user, patch) {
-  return tx(() => {
-    update('refunds', r.id, { ...patch, status: 'paid', paid_at: nowIso() });
-    const c = get('SELECT * FROM cases WHERE id = ?', r.case_id);
-    insert('ledger_entries', { case_id: c.id, payment_id: r.payment_id, org_id: c.org_id, account: 'refund', amount: -r.amount, state: 'settled', memo: `Refund: ${r.reason || ''}`, category: get('SELECT category FROM services WHERE id = ?', c.service_id)?.category });
-    const pay = get('SELECT * FROM payments WHERE id = ?', r.payment_id);
-    if (pay) update('payments', pay.id, { status: r.amount >= pay.amount ? 'refunded' : 'partially_refunded' });
-    audit(user, 'refund.paid', 'refund', r.id, { amount: r.amount });
-    notify(c.customer_id, { title: `Refund approved: ${c.ref}`, body: `AED ${r.amount} will reach you in 5–10 business days.`, link: `/app/cases/${c.id}`, kind: 'payment' });
-    return get('SELECT * FROM refunds WHERE id = ?', r.id);
-  });
+function finalizeRefund(r,user,patch){
+ update('refunds',r.id,{...patch,status:'approved'});audit(user,'refund.approved','refund',r.id,{});return get('SELECT * FROM refunds WHERE id=?',r.id);
 }
-export const rejectRefund = (id, user, note) => { update('refunds', id, { status: 'rejected' }); audit(user, 'refund.reject', 'refund', id, { note }); return get('SELECT * FROM refunds WHERE id = ?', id); };
+export function recordRefundPayout(id,user,reference){
+ if(!['admin','finance'].includes(user.role))throw forbidden();
+ if(!reference?.trim())throw bad('An actual payout reference is required');
+ return tx(()=>{
+ const r=get('SELECT * FROM refunds WHERE id=?',id);if(!r)throw notFound();if(r.status!=='approved')throw conflict('Refund must be independently approved before payout');
+ if(get('SELECT id FROM refunds WHERE payout_reference=?',reference)||get('SELECT id FROM booking_refund_requests WHERE payout_reference=?',reference))throw conflict('Payout reference already used');
+ update('refunds',r.id,{status:'paid',paid_at:nowIso(),payout_reference:reference});const c=get('SELECT * FROM cases WHERE id=?',r.case_id);
+ insert('ledger_entries',{case_id:c.id,payment_id:r.payment_id,org_id:c.org_id,account:'refund',amount:-r.amount,state:'settled',memo:`Actual refund payout ${reference}`,category:get('SELECT category FROM services WHERE id=?',c.service_id)?.category});
+ const pay=get('SELECT * FROM payments WHERE id=?',r.payment_id);const total=get("SELECT SUM(amount) AS n FROM refunds WHERE payment_id=? AND status='paid'",r.payment_id).n;if(pay)update('payments',pay.id,{status:total>=pay.amount-.001?'refunded':'partially_refunded'});
+ audit(user,'refund.payout','refund',r.id,{reference});notify(c.customer_id,{title:`Refund payout recorded: ${c.ref}`,body:`AED ${r.amount}. Receipt reference ${reference}.`,link:`/app/cases/${c.id}`,kind:'payment'});return get('SELECT * FROM refunds WHERE id=?',r.id);
+ });
+}
+export const rejectRefund=(id,user,note)=>{const r=get('SELECT * FROM refunds WHERE id=?',id);if(!r)throw notFound();if(!['requested','approved_1'].includes(r.status))throw conflict('Refund cannot be rejected in this state');update('refunds',id,{status:'rejected'});audit(user,'refund.reject','refund',id,{note});return get('SELECT * FROM refunds WHERE id=?',id);};
 export const _p = { all, run, conflict };
 
 // ---------- supplier bookings (travel, insurance, resident services) ----------
 export function createBookingPayment(booking, user) {
-  const total = money(booking.price_aed + booking.fee_aed);
-  const token = randomToken(16);
-  const id = insert('payments', { case_id: booking.case_id, user_id: user.id, org_id: booking.org_id, kind: 'booking', method: 'card', provider: config.stripe.key ? 'stripe' : config.demoMode ? 'mock' : 'manual', token, amount: total, status: 'pending', proof_note: `booking:${booking.id}` });
+  assertOperational(booking.service_slug,booking.supplier_id);
+  const pending=get("SELECT * FROM payments WHERE booking_id=? AND user_id=? AND status='pending'",booking.id,user.id);if(pending)return pending;
+  const total = money(booking.price_aed + booking.fee_aed + (booking.vat_aed||0));
+  const id = insert('payments', { case_id: booking.case_id, user_id: user.id, org_id: booking.org_id, booking_id:booking.id, kind: 'booking', method: config.stripe.key||config.demoMode?'card':'bank_transfer', provider: config.stripe.key ? 'stripe' : config.demoMode ? 'mock' : 'manual', token:randomToken(16), amount: total, status: 'pending', proof_note: `booking:${booking.id}` });
   return get('SELECT * FROM payments WHERE id = ?', id);
 }
 function verifyBookingPayment(p, providerRef) {
-  const b = get('SELECT * FROM bookings WHERE id = ?', Number((p.proof_note || '').split(':')[1]));
-  update('payments', p.id, { status: 'verified', provider_ref: providerRef || p.provider_ref, verified_at: nowIso(), receipt_no: receiptNo() });
+  const b = get('SELECT * FROM bookings WHERE id = ?',p.booking_id||Number((p.proof_note || '').split(':')[1]));
+  if(!b)throw conflict('Booking link is missing; finance must review this payment');
+  if(get("SELECT id FROM payments WHERE booking_id=? AND id!=? AND status IN ('verified','partially_refunded','refunded')",b.id,p.id))throw conflict('Another collection is already recorded for this booking');
+  update('payments', p.id, { status: 'verified', booking_id:b.id, provider_ref: providerRef || p.provider_ref, verified_at: nowIso(), receipt_no: receiptNo() });
   const post = (account, amount, memo, state = 'open', extra = {}) => amount && insert('ledger_entries', { payment_id: p.id, case_id: b.case_id, org_id: b.org_id, account, amount: money(amount), state, memo, category: 'travel', ...extra });
   post('cash', p.amount, `Booking ${b.ref} collection`, 'settled');
-  post('supplier_payable', b.supplier_amount, `Supplier amount — ${b.kind} (${b.ref})`, 'open', { provider_id: b.supplier_id });
-  post('deferred_service_fee', b.fee_aed + b.commission_aed, 'Booking fee and earned commission (recognised on ticketing/issue)', 'deferred');
-  update('bookings', b.id, { status: 'booked', supplier_ref: `SUP-${randomToken(4).toUpperCase()}` });
+  post('supplier_payable', b.supplier_amount-b.commission_aed, `Supplier net amount — ${b.kind} (${b.ref})`, 'open', { provider_id: b.supplier_id });
+  post('vat_payable',b.vat_aed||0,'VAT on booking coordination fee');
+  post('deferred_service_fee', b.fee_aed + b.commission_aed, 'Booking fee and supplier commission; awaiting evidenced issuance', 'deferred');
+  const status=['cancelled','cancellation_requested'].includes(b.status)?'cancellation_requested':'awaiting_supplier';
+  update('bookings', b.id, { status, supplier_ref:null });
+  bookingEvent(b,null,'payment_verified',status,{note:status==='cancellation_requested'?'Collection arrived after cancellation; review refund obligation.':'Collection verified. Supplier issuance is still pending.'});
   audit(null, 'booking.paid', 'booking', b.id, { amount: p.amount });
-  notify(p.user_id, { title: `Booking ${b.ref} confirmed`, body: `Supplier terms and cancellation rules are in your booking. Receipt ${get('SELECT receipt_no FROM payments WHERE id = ?', p.id).receipt_no}.`, link: '/app/bookings', kind: 'payment' });
+  notify(p.user_id, { title: `Payment received: ${b.ref}`, body:'Payment does not confirm ticketing, policy issuance or supplier acceptance. Follow the supplier status in your workspace.', link: '/app/bookings', kind: 'payment' });
+  notifyRole(['ops','finance'],{title:`Supplier action required: ${b.ref}`,body:'Collection verified; fulfilment evidence is required.',link:'/ops/bookings',kind:'booking'});
   return get('SELECT * FROM payments WHERE id = ?', p.id);
+}
+export function createSubscriptionPayment(orgId,user){
+ assertOperational('business-workspace');
+ return tx(()=>{
+ const active=get("SELECT id FROM subscriptions WHERE org_id=? AND status='active' AND (paid_through IS NULL OR paid_through>=?)",orgId,new Date().toISOString().slice(0,10));if(active)throw conflict('This organisation already has an active subscription');
+ let sub=get("SELECT * FROM subscriptions WHERE org_id=? AND status='pending_payment'",orgId);
+ if(!sub){const id=insert('subscriptions',{org_id:orgId,user_id:user.id,plan:'team',price_aed:299,status:'pending_payment'});sub=get('SELECT * FROM subscriptions WHERE id=?',id);}
+ let payment=get("SELECT * FROM payments WHERE subscription_id=? AND status='pending'",sub.id);
+ if(!payment){const id=insert('payments',{org_id:orgId,user_id:user.id,subscription_id:sub.id,kind:'subscription',method:config.stripe.key||config.demoMode?'card':'bank_transfer',provider:config.stripe.key?'stripe':config.demoMode?'mock':'manual',token:randomToken(16),amount:money(sub.price_aed*(1+config.vatRate)),status:'pending'});payment=get('SELECT * FROM payments WHERE id=?',id);}
+ audit(user,'subscription.checkout','subscription',sub.id,{});
+ return {subscription:sub,payment:{id:payment.id,amount:payment.amount,status:payment.status},checkout:{url:`/pay/${payment.token}`},note:'The workspace plan activates only after server-verified collection. Core case records remain accessible.'};
+ });
+}
+function verifySubscriptionPayment(p,ref){
+ const sub=get('SELECT * FROM subscriptions WHERE id=?',p.subscription_id);if(!sub)throw conflict('Subscription link missing');
+ if(get("SELECT id FROM payments WHERE subscription_id=? AND id!=? AND status='verified'",sub.id,p.id))throw conflict('Subscription already collected');
+ update('payments',p.id,{status:'verified',provider_ref:ref||p.provider_ref,verified_at:nowIso(),receipt_no:receiptNo()});
+ const post=(account,amount,state)=>insert('ledger_entries',{payment_id:p.id,org_id:p.org_id,account,amount:money(amount),state,category:'business',memo:`Business workspace subscription ${sub.id}`});
+ post('cash',p.amount,'settled');
+ if(sub.status==='cancelled'){
+  post('subscription_advance',sub.price_aed,'open');post('vat_payable',p.amount-sub.price_aed,'open');
+  notifyRole(['finance','admin'],{title:'Cancelled subscription received a payment',body:`Payment ${p.id} needs refund review. No subscription was activated.`,link:'/ops/finance',kind:'finance'});
+ }else{
+  const date=config.now();const day=date.getUTCDate();date.setUTCDate(1);date.setUTCMonth(date.getUTCMonth()+1);const max=new Date(Date.UTC(date.getUTCFullYear(),date.getUTCMonth()+1,0)).getUTCDate();date.setUTCDate(Math.min(day,max));
+  update('subscriptions',sub.id,{status:'active',paid_through:date.toISOString().slice(0,10),started_at:nowIso()});update('orgs',sub.org_id,{tier:'team'});
+  post('subscription_revenue',sub.price_aed,'recognised');post('vat_payable',p.amount-sub.price_aed,'open');
+ }
+ audit(null,'subscription.payment_verified','subscription',sub.id,{payment:p.id});return get('SELECT * FROM payments WHERE id=?',p.id);
 }

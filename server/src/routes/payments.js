@@ -23,7 +23,7 @@ payments.post('/webhook/stripe', express.raw({ type: '*/*', limit: '1mb' }), (re
   if (evt.type === 'checkout.session.completed') {
     const pid = Number(evt.data?.object?.metadata?.payment_id);
     const p = get('SELECT * FROM payments WHERE id = ?', pid);
-    if (p && Number(evt.data.object.amount_total) === Math.round(p.amount * 100)) afterVerified(verifyPayment(pid, evt.data.object.id));
+    if (p && p.provider === 'stripe' && evt.data.object.payment_status === 'paid' && String(evt.data.object.currency).toLowerCase() === 'aed' && (!p.provider_ref || p.provider_ref === evt.data.object.id) && Number(evt.data.object.amount_total) === Math.round(p.amount * 100)) afterVerified(verifyPayment(pid, evt.data.object.id));
   }
   res.json({ received: true });
 });
@@ -32,7 +32,7 @@ payments.get('/:token', (req, res) => {
   const p = get('SELECT * FROM payments WHERE token = ?', req.params.token);
   if (!p) throw notFound('Payment link not found');
   const c = p.case_id ? get('SELECT ref, title FROM cases WHERE id = ?', p.case_id) : null;
-  res.json({ amount: p.amount, currency: p.currency, status: p.status, provider: p.provider, ref: c?.ref, title: c?.title || 'Booking', receipt_no: p.receipt_no, test_cards: p.provider === 'mock' ? { success: '4242 4242 4242 4242', declined: '4000 0000 0000 0002' } : null, demo: config.demoMode });
+  res.json({ amount: p.amount, currency: p.currency, status: p.status, provider: p.provider, ref: c?.ref, title: c?.title || (p.kind==='subscription'?'Business workspace subscription':'Supplier booking'), kind:p.kind, return_to:p.kind==='subscription'?`/app/business/${p.org_id}`:p.kind==='booking'?'/app/bookings':`/app/cases/${p.case_id}`, receipt_no: p.receipt_no, test_cards: p.provider === 'mock' ? { success: '4242 4242 4242 4242', declined: '4000 0000 0000 0002' } : null, demo: config.demoMode });
 });
 
 payments.post('/:token/charge', rateLimit({ windowMs: 60000, max: 12, name: 'charge' }), (req, res) => {
@@ -40,6 +40,7 @@ payments.post('/:token/charge', rateLimit({ windowMs: 60000, max: 12, name: 'cha
   if (!p) throw notFound('Payment link not found');
   if (p.provider !== 'mock') throw conflict('This payment uses an external checkout');
   if (p.status === 'verified') return res.json({ status: 'verified', receipt_no: p.receipt_no });
+  if(!['pending','failed'].includes(p.status))throw conflict('This payment is not open for collection');
   const { card } = validate(req.body, { card: 'string!' });
   const r = mockCharge(p, card);
   if (!r.ok) return res.status(402).json({ status: 'failed', error: r.reason });
@@ -49,18 +50,20 @@ payments.post('/:token/charge', rateLimit({ windowMs: 60000, max: 12, name: 'cha
 });
 
 payments.post('/:token/stripe', requireAuth, async (req, res) => {
-  const p = get('SELECT * FROM payments WHERE token = ? AND user_id = ?', req.params.token, req.user.id);
+  const p = get("SELECT * FROM payments WHERE token = ? AND (user_id = ? OR org_id IN (SELECT org_id FROM org_members WHERE user_id=? AND role IN ('owner','finance')))", req.params.token, req.user.id,req.user.id);
   if (!p || p.provider !== 'stripe') throw notFound('No Stripe payment for this link');
-  const s = await startStripeCheckout(p, `${config.baseUrl}/app?paid=1`, `${config.baseUrl}/app`);
+  if(p.status!=='pending')throw conflict('This payment is not awaiting collection');
+  const s = await startStripeCheckout(p, `${config.baseUrl}/pay/${p.token}?returned=1`, `${config.baseUrl}/pay/${p.token}`);
   res.json(s);
 });
 
 // Customer states that they paid by bank transfer. This NEVER advances the case; finance reconciles first.
 payments.post('/:token/bank-proof', requireAuth, (req, res) => {
-  const p = get('SELECT * FROM payments WHERE token = ? AND user_id = ?', req.params.token, req.user.id);
+  const p = get("SELECT * FROM payments WHERE token = ? AND (user_id = ? OR org_id IN (SELECT org_id FROM org_members WHERE user_id=? AND role IN ('owner','finance')))", req.params.token, req.user.id,req.user.id);
   if (!p) throw notFound();
+  if(!['pending','failed'].includes(p.status))throw conflict('This payment is not awaiting reconciliation');
   const { reference } = validate(req.body, { reference: 'string!' });
-  update('payments', p.id, { method: 'bank_transfer', proof_note: `Customer reference: ${reference} (unreconciled)` });
+  update('payments', p.id, { method: 'bank_transfer', customer_bank_reference: reference, status: 'pending' });
   audit(req.user, 'payment.bank_proof', 'payment', p.id, { reference });
   res.json({ ok: true, message: 'Thank you. Your case will advance after finance reconciles the transfer against our bank statement.' });
 });

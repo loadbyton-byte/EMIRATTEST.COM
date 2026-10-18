@@ -1,3 +1,4 @@
+import { recordRefundPayout } from '../domain/payments.js';
 import { processDsr, applyRetention } from '../domain/privacy.js';
 import { createBackup, listBackups } from '../lib/backup.js';
 import { s3Enabled } from '../lib/objectstore.js';
@@ -198,11 +199,12 @@ ops.put('/kb/:id', requireRole('ops', 'admin'), (req, res) => { const b = valida
 ops.post('/kb', requireRole('ops', 'admin'), (req, res) => { const b = validate(req.body, { slug: 'string!', lang: ['en', 'ar'], title: 'string!', body: 'string!', tags: 'string' }); res.status(201).json({ id: insert('kb_articles', { ...b, slug: `${b.slug}:${b.lang || 'en'}`, lang: b.lang || 'en', status: 'approved', approved_by: req.user.name, approved_at: nowIso() }) }); });
 
 // ---------- finance ----------
-ops.get('/finance/overview', financeOnly, (req, res) => res.json({ live: liveFinance(), aging: collectionAging(), refunds: all('SELECT r.*, c.ref FROM refunds r JOIN cases c ON c.id = r.case_id ORDER BY r.id DESC LIMIT 50'), refund_dual_threshold: Number(getSetting('refund_dual_threshold', 300)), settlements: all('SELECT s.*, p.name AS provider, c.ref FROM provider_settlements s JOIN providers p ON p.id = s.provider_id LEFT JOIN cases c ON c.id = s.case_id ORDER BY s.id DESC LIMIT 60'), pending_transfers: all("SELECT p.*, c.ref FROM payments p JOIN cases c ON c.id = p.case_id WHERE p.status = 'pending' AND p.method = 'bank_transfer'") }));
+ops.get('/finance/overview', financeOnly, (req, res) => res.json({ live: liveFinance(), aging: collectionAging(), refunds: all('SELECT r.*, c.ref FROM refunds r JOIN cases c ON c.id = r.case_id ORDER BY r.id DESC LIMIT 50'), refund_dual_threshold: Number(getSetting('refund_dual_threshold', 300)), settlements: all('SELECT s.*, p.name AS provider, c.ref FROM provider_settlements s JOIN providers p ON p.id = s.provider_id LEFT JOIN cases c ON c.id = s.case_id ORDER BY s.id DESC LIMIT 60'), pending_transfers: all("SELECT p.*, c.ref FROM payments p LEFT JOIN cases c ON c.id = p.case_id WHERE p.status = 'pending' AND p.method = 'bank_transfer'") }));
 ops.get('/finance/ledger', financeOnly, (req, res) => { const rows = req.query.case ? all('SELECT * FROM ledger_entries WHERE case_id = ? ORDER BY id', Number(req.query.case)) : all('SELECT l.*, c.ref FROM ledger_entries l LEFT JOIN cases c ON c.id = l.case_id ORDER BY l.id DESC LIMIT 300'); if (req.query.format === 'csv') { res.type('text/csv'); return res.send(toCsv(rows)); } res.json({ entries: rows }); });
 ops.get('/finance/forecast', financeOnly, (req, res) => res.json(cashForecast({ newOrdersPerWeek: Number(req.query.orders || 90), avgNetFee: Number(req.query.fee || 160) })));
 ops.get('/finance/model', financeOnly, (req, res) => res.json(financialModel({ multiplier: Number(req.query.mult || 1) })));
 ops.post('/finance/refunds/:id/approve', financeOnly, (req, res) => res.json({ refund: approveRefund(Number(req.params.id), req.user) }));
+ops.post('/finance/refunds/:id/payout',financeOnly,(req,res)=>{const {reference}=validate(req.body,{reference:'string!'});res.json({refund:recordRefundPayout(Number(req.params.id),req.user,reference)});});
 ops.post('/finance/refunds/:id/reject', financeOnly, (req, res) => res.json({ refund: rejectRefund(Number(req.params.id), req.user, req.body?.note) }));
 ops.post('/finance/payments/:id/reconcile', financeOnly, (req, res) => {
   const p = get('SELECT * FROM payments WHERE id = ?', Number(req.params.id)); if (!p) throw notFound();

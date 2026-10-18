@@ -47,7 +47,7 @@ const sum = (rows, k = 'amount') => money(rows.reduce((a, r) => a + r[k], 0));
 export function liveFinance() {
   const ledger = all('SELECT * FROM ledger_entries');
   const by = (acc, state) => sum(ledger.filter((l) => l.account === acc && (!state || l.state === state)));
-  const recognised = by('service_fee_revenue');
+  const recognised = by('service_fee_revenue') + by('booking_revenue');
   const deferred = sum(ledger.filter((l) => l.account === 'deferred_service_fee' && l.state === 'deferred'));
   const authorityOpen = sum(ledger.filter((l) => l.account === 'authority_payable' && l.state === 'open'));
   const supplierOpen = sum(ledger.filter((l) => l.account === 'supplier_payable' && l.state === 'open'));
@@ -56,11 +56,11 @@ export function liveFinance() {
   const cash = sum(ledger.filter((l) => l.account === 'cash')) - 0;
   const outstandingQuotes = get("SELECT COALESCE(SUM(total),0) AS s, COUNT(*) AS n FROM quotes WHERE status = 'awaiting_approval'");
   const byCategory = all(`SELECT category, SUM(amount) AS revenue, COUNT(DISTINCT case_id) AS cases FROM ledger_entries WHERE account = 'service_fee_revenue' GROUP BY category`);
-  const subs = all("SELECT * FROM subscriptions WHERE status = 'active'");
+  const subs = all("SELECT * FROM subscriptions WHERE status = 'active' AND (paid_through IS NULL OR paid_through >= date('now'))");
   const top = all(`SELECT COALESCE(o.name, u.name) AS customer, SUM(p.amount) AS collected FROM payments p LEFT JOIN orgs o ON o.id = p.org_id JOIN users u ON u.id = p.user_id WHERE p.status = 'verified' GROUP BY COALESCE(o.name, u.name) ORDER BY collected DESC LIMIT 5`);
   const totalCollected = top.reduce((a, r) => a + r.collected, 0);
   const providerBalances = all(`SELECT p.id, p.name, COALESCE(SUM(CASE WHEN s.status IN ('accrued','invoiced') THEN s.amount ELSE 0 END),0) AS payable FROM providers p LEFT JOIN provider_settlements s ON s.provider_id = p.id GROUP BY p.id ORDER BY payable DESC`);
-  const refundLiab = get("SELECT COALESCE(SUM(amount),0) AS s FROM refunds WHERE status IN ('requested','approved_1')").s;
+  const refundLiab = get("SELECT COALESCE(SUM(amount),0) AS s FROM refunds WHERE status IN ('requested','approved_1','approved')").s + get("SELECT COALESCE(SUM(amount),0) AS s FROM booking_refund_requests WHERE status IN ('requested','approved_1','approved')").s;
   const monthly = all(`SELECT substr(ts,1,7) AS month, SUM(amount) AS revenue FROM ledger_entries WHERE account = 'service_fee_revenue' GROUP BY substr(ts,1,7) ORDER BY month`);
   return {
     completed_revenue: recognised, deposits_deferred: deferred, outstanding_quotations: { count: outstandingQuotes.n, value: money(outstandingQuotes.s) },

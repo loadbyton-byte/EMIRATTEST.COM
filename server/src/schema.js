@@ -226,6 +226,25 @@ CREATE TABLE IF NOT EXISTS bookings (
   terms TEXT, cancellation_terms TEXT, supplier_ref TEXT, consent_linked INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS service_arrangements (
+ service_slug TEXT PRIMARY KEY REFERENCES services(slug), status TEXT NOT NULL DEFAULT 'enquiry_only',
+ operating_entity TEXT, jurisdiction TEXT, activity_scope TEXT, licence_reference TEXT, agreement_reference TEXT,
+ permission_reference TEXT, responsible_user_id INTEGER REFERENCES users(id), provider_id INTEGER REFERENCES providers(id),
+ valid_until TEXT, reviewed_by INTEGER REFERENCES users(id), reviewed_at TEXT, updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS booking_events (
+ id INTEGER PRIMARY KEY, booking_id INTEGER NOT NULL REFERENCES bookings(id), actor_user_id INTEGER REFERENCES users(id),
+ type TEXT NOT NULL, previous_status TEXT, status TEXT NOT NULL, note TEXT, evidence_reference TEXT,
+ created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_booking_events ON booking_events(booking_id,id);
+CREATE TABLE IF NOT EXISTS booking_refund_requests (
+ id INTEGER PRIMARY KEY, booking_id INTEGER NOT NULL REFERENCES bookings(id), payment_id INTEGER NOT NULL REFERENCES payments(id),
+ amount REAL NOT NULL, reason TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'requested', requested_by INTEGER REFERENCES users(id),
+ approver1 INTEGER REFERENCES users(id), approver2 INTEGER REFERENCES users(id), payout_reference TEXT, paid_at TEXT,
+ supplier_recovery_amount REAL NOT NULL DEFAULT 0, supplier_recovery_reference TEXT, supplier_recovery_at TEXT,
+ created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 CREATE TABLE IF NOT EXISTS notifications (
   id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), kind TEXT NOT NULL DEFAULT 'info', title TEXT NOT NULL, body TEXT, link TEXT,
   read_at TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -284,6 +303,19 @@ CREATE TABLE IF NOT EXISTS job_runs (
 
 /** Columns added after the first release; applied idempotently on open. [table, column, definition] */
 export const COLUMNS = [
+  ['refunds', 'payout_reference', 'TEXT'],
+  ['payments', 'booking_id', 'INTEGER REFERENCES bookings(id)'],
+  ['payments', 'subscription_id', 'INTEGER REFERENCES subscriptions(id)'],
+  ['payments', 'bank_reference', 'TEXT'],
+  ['payments', 'customer_bank_reference', 'TEXT'],
+  ['subscriptions', 'paid_through', 'TEXT'],
+  ['subscriptions', 'user_id', 'INTEGER REFERENCES users(id)'],
+  ['bookings', 'issued_at', 'TEXT'],
+  ['bookings', 'vat_aed', 'REAL NOT NULL DEFAULT 0'],
+  ['bookings', 'fulfilment_evidence', 'TEXT'],
+  ['bookings', 'cancellation_reason', 'TEXT'],
+  ['bookings', 'supplier_cancel_reference', 'TEXT'],
+
   ['users', 'email_verified_at', 'TEXT'],
   ['users', 'last_login_at', 'TEXT'],
   ['users', 'anonymised_at', 'TEXT'],

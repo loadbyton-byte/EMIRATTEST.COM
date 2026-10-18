@@ -4,11 +4,11 @@ import { get, post, del, money, fdate, fdt } from '../api.js';
 import { useApi, Loading, Card, Badge, Btn, Field, Input, Select, Textarea, Alert, Table, Money, StatusBadge, KV, Modal, Empty, Stat, Tabs, PageHead, useAction, useToast, BarChart, Donut, qs } from '../ui.jsx';
 
 export function OrgLayout() {
-  const { id } = useParams(); const r = useApi(`/api/org/${id}`);
+  const { id } = useParams(); const nav=useNavigate(); const [run,busy]=useAction(); const r = useApi(`/api/org/${id}`);
   if (r.loading && !r.data) return <Loading state={r} />; if (r.error) return <Loading state={r} />;
   const o = r.data.org; const role = r.data.my_role;
   const tabs = [['', 'Overview'], ['cases', 'Cases'], ['bulk', 'Bulk intake', ['owner', 'submitter']], ['employees', 'Employee readiness', ['owner', 'hr']], ['purchasing', 'Purchasing', ['owner', 'approver', 'finance', 'auditor']], ['billing', 'Billing', ['owner', 'finance', 'auditor']], ['reports', 'Reports'], ['team', 'Team', ['owner']], ['integrations', 'Integrations', ['owner']]].filter((t) => !t[2] || t[2].includes(role));
-  return <div><PageHead title={o.name} sub={`${o.type.replace('_', ' ')} · ${o.tier.replace('_', ' ')} tier · you are ${role}`}>{r.data.subscription ? <Badge kind="green">Business workspace active</Badge> : role === 'owner' ? <Btn size="sm" onClick={async () => { await post(`/api/org/${id}/subscription`); r.reload(); }}>Subscribe — AED 299 / month</Btn> : null}</PageHead>
+  return <div><PageHead title={o.name} sub={`${o.type.replace('_', ' ')} · ${o.tier.replace('_', ' ')} tier · you are ${role}`}>{r.data.subscription ? <><Badge kind="green">Business workspace active{r.data.subscription.paid_through ? ` until ${fdate(r.data.subscription.paid_through)}` : ''}</Badge>{role==='owner'&&<Btn kind="ghost" size="sm" disabled={busy} onClick={()=>run(async()=>{await del(`/api/org/${id}/subscription`);r.reload();},{ok:'Plan cancelled. Core case evidence remains available.'})}>Cancel plan</Btn>}</> : role === 'owner' ? <Btn size="sm" disabled={busy} onClick={()=>run(async()=>{const x=await post(`/api/org/${id}/subscription`);nav(x.checkout.url);})}>Subscribe — AED 299 / month + VAT</Btn> : null}</PageHead>
     <div className="tabs">{tabs.map(([p, l]) => <NavLink key={p} to={`/app/business/${id}${p ? `/${p}` : ''}`} end className={({ isActive }) => (isActive ? 'on' : '')} style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--muted)', borderBottom: '3px solid transparent', whiteSpace: 'nowrap' }}>{l}</NavLink>)}</div>
     <style>{`.tabs a.on{color:var(--green-d)!important;border-color:var(--green)!important}`}</style>
     <Outlet context={{ id, org: r.data, reload: r.reload }} /></div>;

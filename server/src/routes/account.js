@@ -1,3 +1,5 @@
+import { bookingOut, requestCancellation } from '../domain/bookings.js';
+import { assertOperational } from '../domain/readiness.js';
 import { Router } from 'express';
 import { all, get, insert, update, run, json, tx } from '../db.js';
 import { requireAuth, isStaff, revokeAllSessions } from '../lib/auth.js';
@@ -128,7 +130,7 @@ account.post('/dsr', (req, res) => {
 });
 account.get('/export', (req, res) => {
   const u = req.user;
-  const data = { exported_at: nowIso(), user: { id: u.id, name: u.name, email: u.email, phone: u.phone, lang: u.lang }, profiles: all('SELECT * FROM profiles WHERE owner_user_id = ?', u.id), consents: all('SELECT * FROM consents WHERE user_id = ?', u.id), cases: all('SELECT * FROM cases WHERE customer_id = ?', u.id), documents: all('SELECT id, case_id, kind, filename, size, sha256, created_at FROM documents WHERE owner_user_id = ? AND deleted_at IS NULL', u.id), payments: all('SELECT id, case_id, amount, status, receipt_no, created_at FROM payments WHERE user_id = ?', u.id), reminders: all('SELECT * FROM reminders WHERE user_id = ?', u.id), bookings: all('SELECT * FROM bookings WHERE user_id = ?', u.id) };
+  const data = { exported_at: nowIso(), user: { id: u.id, name: u.name, email: u.email, phone: u.phone, lang: u.lang }, profiles: all('SELECT * FROM profiles WHERE owner_user_id = ?', u.id), consents: all('SELECT * FROM consents WHERE user_id = ?', u.id), cases: all('SELECT * FROM cases WHERE customer_id = ?', u.id), documents: all('SELECT id, case_id, kind, filename, size, sha256, created_at FROM documents WHERE owner_user_id = ? AND deleted_at IS NULL', u.id), payments: all('SELECT id, case_id, amount, status, receipt_no, created_at FROM payments WHERE user_id = ?', u.id), reminders: all('SELECT * FROM reminders WHERE user_id = ?', u.id), bookings: all('SELECT * FROM bookings WHERE user_id = ?', u.id).map(b=>bookingOut(b)) };
   audit(u, 'user.export', 'user', u.id, {});
   res.setHeader('Content-Disposition', 'attachment; filename="emirattest-data-export.json"');
   res.json(data);
@@ -141,7 +143,7 @@ account.get('/suppliers', (req, res) => {
   const rows = all("SELECT * FROM providers WHERE status = 'active' AND license_verified = 1 AND kind IN ('travel_supplier','insurer','bank_partner','telecom')").map(providerOut).filter((p) => !slug || p.covers.includes(slug) || p.covers.includes('*'));
   res.json({ suppliers: rows.map((p) => ({ id: p.id, name: p.name, kind: p.kind, bio: p.bio, sponsored: p.sponsored, disclosure: p.disclosure, price: p.price_schedule[slug] || null })) });
 });
-account.get('/bookings', (req, res) => res.json({ bookings: all('SELECT b.*, p.name AS supplier_name FROM bookings b LEFT JOIN providers p ON p.id = b.supplier_id WHERE b.user_id = ? ORDER BY b.id DESC', req.user.id).map((b) => ({ ...b, details: json(b.details, {}), checkout: null })) }));
+account.get('/bookings', (req, res) => res.json({ bookings: all('SELECT b.*, p.name AS supplier_name FROM bookings b LEFT JOIN providers p ON p.id = b.supplier_id WHERE b.user_id = ? ORDER BY b.id DESC', req.user.id).map((b) => ({ ...bookingOut(b), checkout: null })) }));
 account.post('/bookings', (req, res) => {
   const b = validate(req.body, { serviceSlug: 'string!', supplierId: 'number!', details: 'object', caseId: 'number', consentLinked: 'boolean' });
   const svc = getService(b.serviceSlug);
@@ -151,11 +153,16 @@ account.post('/bookings', (req, res) => {
   const sched = json(sup.price_schedule, {})[svc.slug];
   if (!sched) throw bad('This supplier has no published price for this service');
   if (b.caseId) { const c = get('SELECT id FROM cases WHERE id = ? AND customer_id = ?', b.caseId, req.user.id); if (!c) throw notFound('Case not found'); if (!b.consentLinked) throw bad('Linking a booking to a relocation case needs your consent'); }
+  assertOperational(svc.slug,sup.id);
+  if(!sup.license_verified||!['travel_supplier','insurer','bank_partner','telecom'].includes(sup.kind)||!(json(sup.covers,[]).includes(svc.slug)||json(sup.covers,[]).includes('*')))throw bad('Supplier is not authorised for this booking');
+  if(!sched.terms||!sched.cancellation||!Number.isFinite(Number(sched.price))||Number(sched.price)<0)throw bad('Supplier price and terms need review');
   const supplier_amount = money(sched.price);
-  const commission = money(supplier_amount * (sched.commission_pct || 0) / 100);
+  const pct=Number(sched.commission_pct||0);if(!Number.isFinite(pct)||pct<0||pct>100)throw bad('Invalid supplier commission');
+  const commission = money(supplier_amount * pct / 100);
+  const vat=money(svc.base_fee_aed*config.vatRate);
   const ref = `BK-${String(get('SELECT COUNT(*) AS n FROM bookings').n + 1).padStart(5, '0')}`;
-  const id = insert('bookings', { ref, case_id: b.caseId, user_id: req.user.id, kind: BOOKING_KINDS[svc.slug], service_slug: svc.slug, supplier_id: sup.id, details: b.details || {}, price_aed: supplier_amount, supplier_amount, commission_aed: commission, fee_aed: svc.base_fee_aed, status: 'quoted', terms: sched.terms, cancellation_terms: sched.cancellation, consent_linked: b.consentLinked ? 1 : 0 });
-  res.status(201).json({ booking: get('SELECT * FROM bookings WHERE id = ?', id), breakdown: { supplier_amount, emirattest_booking_fee: svc.base_fee_aed, commission_note: commission ? 'Earned commission is paid by the supplier and included in the supplier price — shown here for transparency.' : null, total: money(supplier_amount + svc.base_fee_aed) } });
+  const id = insert('bookings', { ref, case_id: b.caseId, user_id: req.user.id, kind: BOOKING_KINDS[svc.slug], service_slug: svc.slug, supplier_id: sup.id, details: b.details || {}, price_aed: supplier_amount, supplier_amount, commission_aed: commission, fee_aed: svc.base_fee_aed, vat_aed:vat, status: 'quoted', terms: sched.terms, cancellation_terms: sched.cancellation, consent_linked: b.consentLinked ? 1 : 0 });
+  res.status(201).json({ booking: get('SELECT * FROM bookings WHERE id = ?', id), breakdown: { supplier_amount, emirattest_booking_fee: svc.base_fee_aed, vat, commission_note: commission ? 'Earned commission is paid by the supplier and included in the supplier price — shown here for transparency.' : null, total: money(supplier_amount + svc.base_fee_aed + vat) } });
 });
 account.post('/bookings/:id/confirm', (req, res) => {
   const bk = get('SELECT * FROM bookings WHERE id = ? AND user_id = ?', Number(req.params.id), req.user.id);
@@ -164,11 +171,5 @@ account.post('/bookings/:id/confirm', (req, res) => {
   const p = createBookingPayment(bk, req.user);
   res.json({ payment: { token: p.token, amount: p.amount }, checkout: { url: `/pay/${p.token}` } });
 });
-account.post('/bookings/:id/cancel', (req, res) => {
-  const bk = get('SELECT * FROM bookings WHERE id = ? AND user_id = ?', Number(req.params.id), req.user.id);
-  if (!bk || !['quoted', 'booked'].includes(bk.status)) throw conflict('Booking cannot be cancelled');
-  update('bookings', bk.id, { status: 'cancelled' });
-  audit(req.user, 'booking.cancel', 'booking', bk.id, {});
-  res.json({ ok: true, note: bk.status === 'booked' ? `Refund follows the supplier rules: ${bk.cancellation_terms}` : 'Quote cancelled.' });
-});
+account.post('/bookings/:id/cancel', (req,res)=>{const b=get('SELECT * FROM bookings WHERE id=? AND user_id=?',Number(req.params.id),req.user.id);if(!b)throw notFound();const booking=requestCancellation(b,req.user,req.body?.reason);res.json({booking,note:booking.status==='cancelled'?'Unpaid quotation cancelled.':'Cancellation requested. Supplier cancellation and any refund are reviewed separately.'});});
 export const _ac = { userOrgs, caseDetail, revokeAllSessions, normPhone, randomToken, tx };

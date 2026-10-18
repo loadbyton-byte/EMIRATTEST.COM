@@ -294,7 +294,10 @@ test('finance: dual-approval refunds, bank reconciliation, ledger separation', a
   const same = await api('finance@emirattest.example', 'POST', `/api/ops/finance/refunds/${pending.id}/approve`);
   assert.equal(same.status, 403, 'two different approvers are required');
   const a2 = await api('finance2@emirattest.example', 'POST', `/api/ops/finance/refunds/${pending.id}/approve`);
-  assert.equal(a2.data.refund.status, 'paid');
+  assert.equal(a2.data.refund.status, 'approved');
+  const payout=await api('finance2@emirattest.example','POST',`/api/ops/finance/refunds/${pending.id}/payout`,{reference:'BANK-REFUND-TEST-01'});
+  assert.equal(payout.data.refund.status,'paid');
+  assert.equal((await api('finance2@emirattest.example','POST',`/api/ops/finance/refunds/${pending.id}/payout`,{reference:'BANK-REFUND-TEST-01'})).status,409);
   const live = await api('finance@emirattest.example', 'GET', '/api/ops/finance/overview');
   assert.ok(live.data.live.completed_revenue > 0);
   assert.ok(live.data.live.pass_through.authority_payable > 0, 'authority collections are not revenue');
