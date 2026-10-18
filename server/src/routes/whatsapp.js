@@ -56,7 +56,7 @@ whatsapp.post('/twilio', express.urlencoded({ extended: false }), async (req, re
   res.type('text/xml').send(`<?xml version="1.0" encoding="UTF-8"?><Response>${out.replies.map((r) => `<Message>${esc(r)}</Message>`).join('')}</Response>`);
 });
 
-/** Browser simulator used for investor demos and tests. Identical engine to the live webhook. */
+/** Browser simulator used for sample-data mode and tests. Identical engine to the live webhook. */
 whatsapp.post('/simulate', rateLimit({ windowMs: 60000, max: 120, name: 'wasim' }), async (req, res) => {
   if (!config.demoMode && !isStaff(req.user)) throw forbidden('Simulator is available in demo mode or to staff');
   const b = validate(req.body, { phone: 'string!', name: 'string', text: 'string', media: 'object' });

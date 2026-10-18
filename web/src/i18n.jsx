@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 
 const D = {
   en: {
-    tagline: 'Documents cleared. Life moves.', nav_services: 'Services', nav_calc: 'Fee calculator', nav_req: 'Requirements', nav_business: 'For business', nav_track: 'Track a case', nav_trust: 'Trust & privacy', nav_investors: 'Investors', signin: 'Sign in', signup: 'Create account', signout: 'Sign out', my_app: 'My workspace',
+    tagline: 'Documents cleared. Life moves.', nav_services: 'Services', nav_calc: 'Fee calculator', nav_req: 'Requirements', nav_business: 'For business', nav_track: 'Track a case', nav_trust: 'Trust & privacy', signin: 'Sign in', signup: 'Create account', signout: 'Sign out', my_app: 'My workspace',
     hero_title: 'Clear requirements. Clear next steps.', hero_lead: 'Attestation, PRO and relocation support for individuals, families and businesses across the UAE. You see the route, the itemised cost and who is responsible — before you commit.',
     hero_foot: 'Free guidance • Itemised approved prices • Enquiry acknowledged within 4 business hours • Never asks for passwords or UAE Pass codes',
     cta_review: 'Review requirements', cta_quote: 'Request a quotation', cta_track: 'Track your case', cta_talk: 'Talk to our team',
@@ -18,7 +18,7 @@ const D = {
     status: 'Status', next_action: 'Next action', next_update: 'Next update due', owner: 'Owner', provider: 'Provider', target: 'Target date', ref: 'Reference',
   },
   ar: {
-    tagline: 'مستنداتك جاهزة، وحياتك تتحرك.', nav_services: 'الخدمات', nav_calc: 'حاسبة الرسوم', nav_req: 'المتطلبات', nav_business: 'للأعمال', nav_track: 'تتبع طلب', nav_trust: 'الثقة والخصوصية', nav_investors: 'المستثمرون', signin: 'تسجيل الدخول', signup: 'إنشاء حساب', signout: 'تسجيل الخروج', my_app: 'مساحتي',
+    tagline: 'مستنداتك جاهزة، وحياتك تتحرك.', nav_services: 'الخدمات', nav_calc: 'حاسبة الرسوم', nav_req: 'المتطلبات', nav_business: 'للأعمال', nav_track: 'تتبع طلب', nav_trust: 'الثقة والخصوصية', signin: 'تسجيل الدخول', signup: 'إنشاء حساب', signout: 'تسجيل الخروج', my_app: 'مساحتي',
     hero_title: 'متطلبات واضحة. خطوات تالية واضحة.', hero_lead: 'خدمات التصديق والمندوب والانتقال للأفراد والعائلات والشركات في الإمارات. ترى المسار والتكلفة المفصّلة ومن المسؤول — قبل أن تلتزم.',
     hero_foot: 'إرشاد مجاني • أسعار مفصلة ومعتمدة • الرد على الاستفسارات خلال 4 ساعات عمل • لا نطلب كلمات المرور أو رموز الهوية الرقمية',
     cta_review: 'راجع المتطلبات', cta_quote: 'اطلب عرض سعر', cta_track: 'تتبع طلبك', cta_talk: 'تحدث مع فريقنا',

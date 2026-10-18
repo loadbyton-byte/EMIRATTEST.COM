@@ -13,6 +13,7 @@ import { whatsappStatus } from '../domain/whatsapp-transport.js';
 import { validate, bad, notFound, normPhone, nowIso } from '../lib/util.js';
 import { rateLimit } from '../lib/auth.js';
 import { notifyRole } from '../domain/notify.js';
+import { integrationStatus } from '../lib/integrations.js';
 
 export const pub = Router();
 
@@ -20,7 +21,7 @@ pub.get('/health', (_req, res) => res.json({ ok: true, time: nowIso(), demo: con
 
 pub.get('/config', (_req, res) => res.json({
   demo_mode: config.demoMode, vat_rate: config.vatRate, emirates: EMIRATES, courier_fees: COURIER_FEE, readiness_review_fee: READINESS_REVIEW_FEE, countries: COUNTRIES.map(([code, en, ar]) => ({ code, en, ar })),
-  integrations: { payments: config.stripe.key ? 'stripe_test' : 'mock', whatsapp: whatsappStatus().mode, ai: config.ai.key ? 'claude' : 'knowledge_base', email: config.mail.resendKey ? 'resend' : 'outbox_only' },
+  integrations: integrationStatus(whatsappStatus().mode),
   commitments: { enquiry_ack_hours: 4, quote_business_days: 1 }, support_hours: 'Mon–Fri 09:00–18:00 GST',
 }));
 
@@ -66,19 +67,7 @@ pub.post('/track', rateLimit({ windowMs: 60000, max: 10, name: 'track' }), (req,
   res.json({ ref: c.ref, status: c.status, status_label: STATUS[c.status].label, next_action: c.next_action, next_action_owner: c.next_action_owner, next_update_due: c.next_update_due, updated_at: c.updated_at, target_date: c.target_date, plan_status: deadlinePlan(c).status });
 });
 
-/** Investor overview data: plan financial model and (clearly separated) live demo-platform metrics. */
-pub.get('/investor/model', (req, res) => res.json(financialModel({ multiplier: Number(req.query.mult || 1), fixedOverhead: req.query.fixed ? Number(req.query.fixed) : undefined })));
-pub.get('/investor/platform', (_req, res) => {
-  const n = (sql, ...p) => get(sql, ...p).n;
-  res.json({
-    label: 'Live metrics from the seeded demonstration database — illustrative, not commercial traction.',
-    counts: { services: n('SELECT COUNT(*) AS n FROM services'), routes: n('SELECT COUNT(*) AS n FROM routes'), providers: n('SELECT COUNT(*) AS n FROM providers'), cases: n('SELECT COUNT(*) AS n FROM cases'), organisations: n('SELECT COUNT(*) AS n FROM orgs'), documents: n('SELECT COUNT(*) AS n FROM documents'), custody_events: n('SELECT COUNT(*) AS n FROM custody_events'), messages: n('SELECT COUNT(*) AS n FROM messages'), whatsapp_messages: n('SELECT COUNT(*) AS n FROM conv_messages'), audit_entries: n('SELECT COUNT(*) AS n FROM audit_log') },
-    status_breakdown: all('SELECT status, COUNT(*) AS n FROM cases GROUP BY status ORDER BY n DESC').map((r) => ({ ...r, label: STATUS[r.status]?.label })),
-    finance: liveFinance(), stale_routes: staleRoutes(),
-  });
-});
-
-// Demo webhook receiver so the seeded employer endpoint shows real delivered/failed states.
+// Echo receiver so the sample employer webhook endpoint shows real delivered/failed states (sample-data mode only).
 pub.post('/webhook-echo', (req, res) => {
   if (!config.demoMode) throw notFound();
   res.json({ received: true, signature_present: !!req.headers['x-emirattest-signature'] });

@@ -1,6 +1,7 @@
 import { all, get, insert, update, run } from '../db.js';
 import { config } from '../config.js';
 import { nowIso, waIdOf } from '../lib/util.js';
+import { mailMode, sendMail } from '../lib/mailer.js';
 
 /** Create an in-app notification and queue email/WhatsApp according to the recipient's consent and channel availability. */
 export function notify(userId, { title, body, link, kind = 'info', email = true, whatsapp = false }) {
@@ -9,8 +10,6 @@ export function notify(userId, { title, body, link, kind = 'info', email = true,
   insert('notifications', { user_id: userId, kind, title, body: body || null, link: link || null });
   if (email && u.email && !u.email.endsWith('.example')) {
     insert('outbox', { channel: 'email', to_addr: u.email, subject: title, body: renderEmail(u, title, body, link), user_id: userId });
-  } else if (email && u.email) {
-    insert('outbox', { channel: 'email', to_addr: u.email, subject: title, body: renderEmail(u, title, body, link), user_id: userId, status: 'demo' });
   }
   if (whatsapp && u.phone) {
     const consent = get("SELECT granted FROM consents WHERE user_id = ? AND kind = 'renewal_reminders'", userId);
@@ -26,21 +25,20 @@ export function renderEmail(u, title, body, link) {
 }
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-/** Deliver pending outbox rows. Uses Resend/WhatsApp APIs when configured; otherwise marks rows as 'simulated' so they remain visible. */
+/** Deliver pending outbox rows. Sends via SMTP/Resend and WhatsApp when configured; without a transport the rows stay visible as 'queued_no_transport' and are retried once one is configured. */
 export async function flushOutbox(limit = 25) {
   const rows = all("SELECT * FROM outbox WHERE status = 'pending' ORDER BY id LIMIT ?", limit);
   for (const r of rows) {
     try {
       if (r.channel === 'email') {
-        if (!config.mail.resendKey) { update('outbox', r.id, { status: 'simulated', sent_at: nowIso() }); continue; }
-        const resp = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${config.mail.resendKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: config.mail.from, to: [r.to_addr], subject: r.subject, html: r.body }) });
-        const j = await resp.json().catch(() => ({}));
-        update('outbox', r.id, resp.ok ? { status: 'sent', provider_ref: j.id, sent_at: nowIso() } : { status: 'failed', error: JSON.stringify(j).slice(0, 300) });
+        if (mailMode() === 'none') { update('outbox', r.id, { status: 'queued_no_transport' }); continue; }
+        const out = await sendMail({ to: r.to_addr, subject: r.subject, html: r.body });
+        update('outbox', r.id, out.sent ? { status: 'sent', provider_ref: out.id, sent_at: nowIso() } : { status: 'failed', error: out.error || 'send failed' });
       } else if (r.channel === 'whatsapp') {
         const { sendWhatsAppText } = await import('./whatsapp-transport.js');
         const out = await sendWhatsAppText(r.to_addr, r.body);
-        update('outbox', r.id, { status: out.sent ? 'sent' : 'simulated', provider_ref: out.id || null, sent_at: nowIso() });
-      } else update('outbox', r.id, { status: 'simulated', sent_at: nowIso() });
+        update('outbox', r.id, out.sent ? { status: 'sent', provider_ref: out.id || null, sent_at: nowIso() } : { status: 'queued_no_transport' });
+      } else update('outbox', r.id, { status: 'failed', error: 'unknown channel' });
     } catch (e) {
       update('outbox', r.id, { status: 'failed', error: String(e.message).slice(0, 300) });
     }

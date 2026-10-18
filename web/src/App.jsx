@@ -5,7 +5,6 @@ import { I18nProvider, useI18n } from './i18n.jsx';
 import { ToastProvider } from './ui.jsx';
 import { PublicLayout, Home, Services, ServiceDetail, Calculator, Requirements, Business, TrackPublic, Trust, Legal } from './pages/public.jsx';
 import { Login, Register, Demo, Pay, Invite, WhatsAppDemo } from './pages/auth.jsx';
-import Investors from './pages/investors.jsx';
 import { Shell } from './app/Shell.jsx';
 import CaseDetail from './app/case.jsx';
 import { Dashboard, Requests, NewRequest, Documents, Family, Planner, Bookings, Settings } from './app/customer.jsx';
@@ -33,8 +32,7 @@ function SW() { useEffect(() => { if ('serviceWorker' in navigator && location.p
 export default function App() {
   return <BrowserRouter><I18nProvider><ToastProvider><AuthProvider><SW /><Routes>
     <Route element={<PublicLayout />}>
-      <Route index element={<Home />} /><Route path="services" element={<Services />} /><Route path="services/:slug" element={<ServiceDetail />} /><Route path="calculator" element={<Calculator />} /><Route path="requirements" element={<Requirements />} /><Route path="business" element={<Business />} /><Route path="track" element={<TrackPublic />} /><Route path="trust" element={<Trust />} /><Route path="legal/:doc" element={<Legal />} /><Route path="investors" element={<Investors />} />
-      <Route path="login" element={<Login />} /><Route path="register" element={<Register />} /><Route path="demo" element={<Demo />} /><Route path="whatsapp-demo" element={<WhatsAppDemo />} /><Route path="pay/:token" element={<Pay />} /><Route path="invite/:token" element={<Invite />} /></Route>
+      <Route index element={<Home />} /><Route path="services" element={<Services />} /><Route path="services/:slug" element={<ServiceDetail />} /><Route path="calculator" element={<Calculator />} /><Route path="requirements" element={<Requirements />} /><Route path="business" element={<Business />} /><Route path="track" element={<TrackPublic />} /><Route path="trust" element={<Trust />} /><Route path="legal/:doc" element={<Legal />} /><Route path="login" element={<Login />} /><Route path="register" element={<Register />} /><Route path="demo" element={<Demo />} /><Route path="whatsapp-demo" element={<WhatsAppDemo />} /><Route path="pay/:token" element={<Pay />} /><Route path="invite/:token" element={<Invite />} /></Route>
     <Route path="/app" element={<Protected roles={['customer']}><CustomerShell /></Protected>}>
       <Route index element={<Dashboard />} /><Route path="requests" element={<Requests />} /><Route path="new" element={<NewRequest />} /><Route path="cases/:id" element={<CaseDetail />} /><Route path="documents" element={<Documents />} /><Route path="family" element={<Family />} /><Route path="planner" element={<Planner />} /><Route path="bookings" element={<Bookings />} /><Route path="settings" element={<Settings />} />
       <Route path="business/:id" element={<OrgLayout />}><Route index element={<OrgOverview />} /><Route path="cases" element={<OrgCases />} /><Route path="bulk" element={<OrgBulk />} /><Route path="employees" element={<OrgEmployees />} /><Route path="purchasing" element={<OrgPurchasing />} /><Route path="billing" element={<OrgBilling />} /><Route path="reports" element={<OrgReports />} /><Route path="team" element={<OrgTeam />} /><Route path="integrations" element={<OrgIntegrations />} /></Route></Route>

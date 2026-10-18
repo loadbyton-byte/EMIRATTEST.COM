@@ -1,3 +1,4 @@
+import { integrationStatus } from '../lib/integrations.js';
 import { Router } from 'express';
 import { all, get, insert, update, run, json, tx, getSetting, setSetting } from '../db.js';
 import { config } from '../config.js';
@@ -239,7 +240,7 @@ ops.patch('/users/:id', adminOnly, (req, res) => {
 });
 ops.patch('/orgs/:id', requireRole('ops', 'admin'), (req, res) => { const b = validate(req.body, { tier: ['per_case', 'team', 'enterprise'], credit_limit: 'number', account_manager_id: 'number', status: ['active', 'suspended'] }); update('orgs', Number(req.params.id), b); audit(req.user, 'org.update', 'org', req.params.id, b); res.json({ ok: true }); });
 ops.get('/audit', requireRole('admin', 'ops', 'finance'), (req, res) => res.json({ entries: all('SELECT id, ts, actor_label, action, entity, entity_id, detail, hash FROM audit_log ORDER BY id DESC LIMIT ?', Math.min(Number(req.query.limit || 150), 500)), chain: verifyAuditChain() }));
-ops.get('/settings', adminOnly, (req, res) => res.json({ settings: { refund_dual_threshold: getSetting('refund_dual_threshold', 300), opening_cash: getSetting('opening_cash', 330000), require_staff_mfa: config.requireStaffMfa }, integrations: { payments: config.stripe.key ? 'stripe_test' : 'mock', whatsapp: whatsappStatus(), ai: config.ai.key ? 'claude' : 'knowledge_base', email: config.mail.resendKey ? 'resend' : 'outbox_only', demo_mode: config.demoMode } }));
+ops.get('/settings', adminOnly, (req, res) => res.json({ settings: { refund_dual_threshold: getSetting('refund_dual_threshold', 300), opening_cash: getSetting('opening_cash', 330000), require_staff_mfa: config.requireStaffMfa }, integrations: { ...integrationStatus(whatsappStatus().mode), demo_mode: config.demoMode } }));
 ops.put('/settings', adminOnly, (req, res) => { const b = validate(req.body, { refund_dual_threshold: 'number', opening_cash: 'number' }); Object.entries(b).forEach(([k, v]) => setSetting(k, v)); audit(req.user, 'settings.update', 'settings', null, b); res.json({ ok: true }); });
 ops.get('/outbox', adminOnly, (req, res) => res.json({ messages: all('SELECT id, channel, to_addr, subject, status, error, created_at, sent_at FROM outbox ORDER BY id DESC LIMIT 100') }));
 ops.post('/jobs/run', adminOnly, async (req, res) => { const sent = await flushOutbox(50); const hooks = await runWebhookQueue(50); res.json({ outbox_processed: sent, webhooks_processed: hooks }); });

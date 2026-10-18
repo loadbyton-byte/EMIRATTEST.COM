@@ -1,4 +1,4 @@
-# One-click free hosting for the investor demo: Render → New → Blueprint → select this repository.
+# One-click free hosting: Render → New → Blueprint → select this repository.
 # The free tier has no persistent disk: the demo database is re-seeded automatically on every cold start (≈10 s).
 services:
   - type: web

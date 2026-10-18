@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { get, update, all, json } from '../db.js';
 import { requireAuth, isStaff } from '../lib/auth.js';
-import { validate, bad, forbidden, notFound, HttpError } from '../lib/util.js';
+import { validate, bad, forbidden, notFound, conflict, HttpError } from '../lib/util.js';
 import { caseAccess, profileAccess } from '../domain/access.js';
 import { signedUrl, checkSigned, readFileBytes, logAccess, docOut, readinessCheck, recordVerification } from '../domain/documents.js';
 import { extractDocument } from '../domain/ai.js';
@@ -56,15 +56,14 @@ documents.get('/:id/history', (req, res) => {
 documents.post('/:id/extract', async (req, res) => {
   const { d, a } = loadDoc(req.user, req.params.id);
   if (!a.act && !isStaff(req.user)) throw forbidden();
-  const b = validate(req.body, { simulateMismatch: 'boolean' });
-  const profile = d.profile_id ? get('SELECT * FROM profiles WHERE id = ?', d.profile_id) : null;
-  let buf = null; try { buf = d.storage_key ? readFileBytes(d) : null; } catch { /* sample mode still works */ }
-  const out = await extractDocument(d, buf, { profile, simulateMismatch: !!b.simulateMismatch });
+  if (d.scan_status !== 'clean') throw conflict('File has not passed the security scan');
+  const buf = d.storage_key ? readFileBytes(d) : null;
+  const out = await extractDocument(d, buf);
   const f = out.fields;
-  update('documents', d.id, { extracted: f, extraction_source: out.source, confirmed: 0, holder_name: f.holder_name ?? d.holder_name, doc_number: f.doc_number ?? d.doc_number, issue_date: f.issue_date ?? d.issue_date, expiry_date: f.expiry_date ?? d.expiry_date, issuing_authority: f.issuing_authority ?? d.issuing_authority, issuing_country: f.issuing_country ?? d.issuing_country, pages_declared: f.pages ?? d.pages_declared, pages_uploaded: d.pages_uploaded ?? f.pages ?? null });
+  if (out.source !== 'none') update('documents', d.id, { extracted: f, extraction_source: out.source, confirmed: 0, holder_name: f.holder_name ?? d.holder_name, doc_number: f.doc_number ?? d.doc_number, issue_date: f.issue_date ?? d.issue_date, expiry_date: f.expiry_date ?? d.expiry_date, issuing_authority: f.issuing_authority ?? d.issuing_authority, issuing_country: f.issuing_country ?? d.issuing_country, pages_declared: f.pages ?? d.pages_declared, pages_uploaded: d.pages_uploaded ?? f.pages ?? null });
   audit(req.user, 'document.extract', 'document', d.id, { source: out.source });
   const fresh = get('SELECT * FROM documents WHERE id = ?', d.id);
-  res.json({ document: docOut(fresh), source: out.source, notice: out.source === 'sample' ? 'SAMPLE extraction for demonstration. Connect ANTHROPIC_API_KEY for real field reading. Fields are provisional until confirmed by a person.' : 'Provisional AI extraction — confirm or correct each field. Reading a stamp or QR code is not proof of authenticity.', readiness: d.case_id ? readinessCheck(get('SELECT * FROM cases WHERE id = ?', d.case_id)) : null });
+  res.json({ document: docOut(fresh), source: out.source, confidence: out.confidence, notice: out.notice, readiness: d.case_id ? readinessCheck(get('SELECT * FROM cases WHERE id = ?', d.case_id)) : null });
 });
 
 documents.patch('/:id', (req, res) => {

@@ -222,11 +222,25 @@ test('documents: scan, format, mismatch controls, integrity, expiring links', as
   assert.equal(tampered.status, 403);
   const rahulLink = await api('rahul@emirattest.example', 'GET', `/api/documents/${d.id}/link`);
   assert.equal(rahulLink.status, 404);
-  // extraction is clearly labelled as sample without an AI key, and stays provisional
-  const ex = await api(S, 'POST', `/api/documents/${d.id}/extract`, { simulateMismatch: false });
-  assert.equal(ex.data.source, 'sample');
-  assert.equal(ex.data.document.confirmed, false);
-  assert.match(ex.data.notice, /SAMPLE/);
+  // an unreadable scan yields no invented fields and stays unconfirmed
+  const ex = await api(S, 'POST', `/api/documents/${d.id}/extract`, {});
+  assert.equal(ex.status, 200);
+  assert.equal(ex.data.source, 'none');
+  assert.match(ex.data.notice, /No readable text/);
+});
+
+test('OCR reads a real certificate image and parses provisional fields', async () => {
+  const { readText, parseFields, terminateOcr } = await import('../src/lib/ocr.js');
+  const fs = await import('node:fs');
+  const text = await readText(fs.readFileSync(new URL('./fixtures/certificate.png', import.meta.url)), 'image/png');
+  assert.match(text, /University of Dubai/i);
+  const { fields } = parseFields(text);
+  assert.match(fields.holder_name, /Sara Al Mansoori/i);
+  assert.match(fields.doc_number, /UD-2019-004455/);
+  assert.equal(fields.issue_date, '2019-06-12');
+  assert.equal(fields.expiry_date, '2031-03-13');
+  assert.match(fields.issuing_authority, /University/i);
+  await terminateOcr();
 });
 
 test('organisation controls: approval limits, bulk intake, employee consent, API keys & idempotency', async () => {

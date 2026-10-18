@@ -93,7 +93,7 @@ auth.post('/mfa/disable', requireAuth, (req, res) => {
 auth.get('/sessions', requireAuth, (req, res) => res.json({ sessions: all('SELECT id, created_at, expires_at, device, revoked_at FROM sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT 20', req.user.id).map((s) => ({ ...s, id: s.id.slice(0, 8), full: s.id, current: s.id === req.sessionId })) }));
 auth.post('/sessions/revoke-all', requireAuth, (req, res) => { revokeAllSessions(req.user.id); audit(req.user, 'user.sessions_revoked', 'user', req.user.id, {}); clearSessionCookie(res); res.json({ ok: true }); });
 
-/** Demo persona launcher (investor demos). Disabled when DEMO_MODE=0. */
+/** Sample-account launcher. Disabled when DEMO_MODE=0. */
 auth.get('/demo-personas', (_req, res) => {
   if (!config.demoMode) throw notFound();
   res.json({ password: 'Demo@12345', personas: all("SELECT email, name, role, demo_label FROM users WHERE demo_label IS NOT NULL ORDER BY id") });
