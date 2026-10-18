@@ -1,0 +1,23 @@
+# One-click free hosting for the investor demo: Render → New → Blueprint → select this repository.
+# The free tier has no persistent disk: the demo database is re-seeded automatically on every cold start (≈10 s).
+services:
+  - type: web
+    name: emirattest-demo
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /api/public/health
+    envVars:
+      - { key: NODE_ENV, value: production }
+      - { key: DEMO_MODE, value: "1" }
+      - { key: DATA_DIR, value: /tmp/emirattest-data }
+      - { key: SESSION_SECRET, generateValue: true }
+      - { key: APP_BASE_URL, sync: false }          # e.g. https://emirattest-demo.onrender.com
+      - { key: CORS_ORIGINS, value: "https://localhost,capacitor://localhost" }
+      - { key: STRIPE_SECRET_KEY, sync: false }     # optional: Stripe test-mode key
+      - { key: ANTHROPIC_API_KEY, sync: false }     # optional: Claude for AI answers & document extraction
+      - { key: RESEND_API_KEY, sync: false }        # optional: email delivery
+      - { key: WHATSAPP_ACCESS_TOKEN, sync: false } # optional: Meta Cloud API
+      - { key: WHATSAPP_PHONE_NUMBER_ID, sync: false }
+      - { key: WHATSAPP_VERIFY_TOKEN, value: emirattest-verify }

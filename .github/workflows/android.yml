@@ -1,0 +1,59 @@
+name: Emirattest Android APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: "Emirattest server URL the app should default to (e.g. https://emirattest-demo.onrender.com)"
+        required: false
+        default: ""
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - "mobile/**"
+      - ".github/workflows/android.yml"
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: package-lock.json }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+
+      - name: Build web app (bundled into the APK)
+        env:
+          VITE_API_BASE: ${{ github.event.inputs.api_url || vars.EMIRATTEST_API_URL || '' }}
+        run: |
+          npm ci
+          npm run build
+
+      - name: Generate native Android project
+        working-directory: mobile
+        run: |
+          npm install --no-audit --no-fund
+          npx cap add android
+          # Camera (document capture), location (custody events) permissions
+          sed -i 's#</manifest>#    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n    <uses-feature android:name="android.hardware.camera" android:required="false" />\n</manifest>#' android/app/src/main/AndroidManifest.xml
+          npx @capacitor/assets generate --android --iconBackgroundColor '#FFFFFF' --splashBackgroundColor '#FFFFFF' --splashBackgroundColorDark '#151B18'
+          npx cap sync android
+
+      - name: Assemble debug APK
+        working-directory: mobile/android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Rename APK
+        run: |
+          mkdir -p dist-apk
+          cp mobile/android/app/build/outputs/apk/debug/app-debug.apk dist-apk/Emirattest-debug.apk
+          ls -la dist-apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Emirattest-android-apk
+          path: dist-apk/Emirattest-debug.apk
+          retention-days: 30

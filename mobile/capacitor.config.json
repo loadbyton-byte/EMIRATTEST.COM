@@ -1,0 +1,11 @@
+{
+  "appId": "com.emirattest.app",
+  "appName": "Emirattest",
+  "webDir": "../web/dist",
+  "server": { "androidScheme": "https" },
+  "android": { "allowMixedContent": false },
+  "plugins": {
+    "SplashScreen": { "launchShowDuration": 1200, "backgroundColor": "#FFFFFF", "androidScaleType": "CENTER_INSIDE", "showSpinner": false },
+    "StatusBar": { "style": "DARK", "backgroundColor": "#007A45" }
+  }
+}

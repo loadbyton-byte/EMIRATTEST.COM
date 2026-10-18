@@ -1,0 +1,9 @@
+node_modules/
+server/data/
+web/dist/
+.env
+*.log
+mobile/android/
+mobile/node_modules/
+mobile/www/
+test-results/

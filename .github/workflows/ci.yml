@@ -1,0 +1,26 @@
+name: Emirattest CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: package-lock.json }
+      - run: npm ci
+      - name: API & WhatsApp tests
+        run: npm test
+      - name: Build web
+        run: npm run build
+      - name: Browser end-to-end (all roles)
+        run: |
+          npx playwright-core install --with-deps chromium
+          CHROMIUM_PATH="$(find ~/.cache/ms-playwright -name chrome -type f | head -1)" npm run e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: emirattest-e2e-screenshots, path: web/test-results, retention-days: 7 }
