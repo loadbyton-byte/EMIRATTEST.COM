@@ -1,3 +1,4 @@
+import { ExperienceHome, PageIntroduction } from '../components/Experience.jsx';
 import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate, useParams, useSearchParams, useLocation } from 'react-router-dom';
 import { api, get, post, money, fdate } from '../api.js';
@@ -18,6 +19,7 @@ export function PublicLayout() {
   const link = (to, k) => <NavLink to={to} className={({ isActive }) => (isActive ? 'active' : '')}>{t(k)}</NavLink>;
   return (
     <>
+      <a className="skip-link" href="#main-content">Skip to content</a>
       {cfg.data?.demo_mode && <div className="demo-banner">SAMPLE-DATA ENVIRONMENT — fictional records. <Link to="/demo">Open sample accounts</Link></div>}
       <header className="topbar"><div className="wrap inner">
         <Link to="/" className="logo" aria-label="Emirattest home"><img src="/brand/primary-full-color.svg" alt="Emirattest — Documents cleared. Life moves." /></Link>
@@ -25,10 +27,10 @@ export function PublicLayout() {
         <div className="row" style={{ marginInlineStart: 'auto', flexWrap: 'nowrap' }}>
           <button className="btn ghost sm" onClick={() => setLang(lang === 'en' ? 'ar' : 'en')} aria-label="Switch language">{lang === 'en' ? 'العربية' : 'English'}</button>
           {user ? <><Btn to={homeFor(user)} size="sm">{t('my_app')}</Btn><button className="btn ghost sm" onClick={logout}>{t('signout')}</button></> : <><Btn to="/login" kind="ghost" size="sm">{t('signin')}</Btn><Btn to="/register" size="sm">{t('signup')}</Btn></>}
-          <button className="btn ghost sm burger" onClick={() => setOpen(!open)} aria-label="Menu"><Icon name={open ? 'x' : 'menu'} size={18} /></button>
+          <button className="btn ghost sm burger" onClick={() => setOpen(!open)} aria-label="Menu" aria-expanded={open}><Icon name={open ? 'x' : 'menu'} size={18} /></button>
         </div>
       </div><div className="ribbon" /></header>
-      <main><Outlet /></main>
+      <main id="main-content"><PageIntroduction path={loc.pathname} /><Outlet /></main>
       <Footer />
       <div className="float-actions print-hide">
         <Link to="/whatsapp-demo" className="fab wa" aria-label={t('open_whatsapp')} title={t('open_whatsapp')}><Icon name="wa" /></Link>
@@ -65,32 +67,14 @@ function AssistantChat({ onClose }) {
     <form onSubmit={send} className="row" style={{ padding: 10, flexWrap: 'nowrap' }}><input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('type_here')} aria-label={t('type_here')} /><button className="btn" disabled={busy}>{t('send')}</button></form></div>;
 }
 
-export function Home() {
-  const { t, pick, lang } = useI18n();
-  const cats = useApi('/api/public/categories');
-  const svcs = useApi('/api/public/services');
-  const icons = { attestation: 'stamp', pro: 'id', mobility: 'globe', travel: 'plane', resident: 'home', logistics: 'truck', business: 'building' };
-  return <>
-    <section className="hero"><div className="wrap">
-      <h1>{t('hero_title')}</h1><p className="lead">{t('hero_lead')}</p>
-      <div className="pill-row"><Btn to="/requirements" size="lg">{t('cta_review')}</Btn><Btn to="/calculator" kind="secondary" size="lg">{t('cta_quote')}</Btn><Btn to="/track" kind="ghost" size="lg">{t('cta_track')}</Btn><Btn to="/whatsapp-demo" kind="ghost" size="lg">{t('cta_talk')}</Btn></div>
-      <p className="small muted mt">{t('hero_foot')}</p>
-    </div></section>
-    <section className="section"><div className="wrap"><h2>{t('cats_title')}</h2><p className="sub">{t('cats_sub')}</p>
-      <Loading state={cats} />
-      <div className="grid g3">{cats.data?.categories.map((c) => { const n = svcs.data?.services.filter((s) => s.category === c.key) || []; return <Link key={c.key} to={`/services?category=${c.key}`} className="card link"><div className="icon-box"><Icon name={icons[c.key]} /></div><h3>{c[lang]}</h3><div className="small muted">{n.slice(0, 4).map((s) => pick(s, 'name')).join(' · ')}{n.length > 4 ? ` · +${n.length - 4}` : ''}</div></Link>; })}</div></div></section>
-    <section className="section alt"><div className="wrap"><h2>{t('how_title')}</h2><div className="steps mt">{[1, 2, 3, 4].map((i) => <div key={i}><h4>{t(`how${i}`)}</h4><p className="small muted">{t(`how${i}d`)}</p></div>)}</div></div></section>
-    <section className="section"><div className="wrap"><h2>{t('trust_title')}</h2><div className="grid g3 mt">{[1, 2, 3].map((i) => <Card key={i}><h3>{t(`trust${i}`)}</h3><p className="small muted">{t(`trust${i}d`)}</p></Card>)}</div></div></section>
-    <section className="section alt"><div className="wrap"><div className="grid g2" style={{ alignItems: 'center' }}><div><h2>{t('biz_title')}</h2><p className="sub">{t('biz_lead')}</p><Btn to="/business">Explore the business workspace</Btn></div><Card className="tint"><h3>Business workspace — AED 299 / org / month</h3><ul className="small"><li>Roles: owner, submitter, approver, finance, HR, auditor</li><li>Bulk CSV intake with duplicate checks</li><li>Employee readiness board with consent</li><li>POs, budgets, credit limits, consolidated invoices</li><li>API keys, signed webhooks</li></ul></Card></div></div></section>
-  </>;
-}
+export function Home() { return <ExperienceHome />; }
 
 export function Services() {
   const [sp, setSp] = useSearchParams();
   const category = sp.get('category') || ''; const [q, setQ] = useState('');
   const { lang, pick } = useI18n();
   const cats = useApi('/api/public/categories'); const svcs = useApi(`/api/public/services${qs({ category, q })}`, []);
-  return <div className="wrap section"><h1>Service catalogue</h1><p className="sub muted">Every service belongs to the launch scope. The order engine confirms the authorised provider, supported jurisdiction and case eligibility for each request.</p>
+  return <div className="wrap section"><h1>Service catalogue</h1><p className="sub muted">Explore support for your documents, family and business. Each request is reviewed for its requirements, jurisdiction and provider availability before you proceed.</p>
     <div className="row mb"><button className={`btn sm ${!category ? '' : 'ghost'}`} onClick={() => setSp({})}>All</button>{cats.data?.categories.map((c) => <button key={c.key} className={`btn sm ${category === c.key ? '' : 'ghost'}`} onClick={() => setSp({ category: c.key })}>{c[lang]}</button>)}<input className="input" style={{ maxWidth: 260, marginInlineStart: 'auto' }} placeholder="Search services" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search services" /></div>
     <Loading state={svcs} />
     <div className="grid g3">{svcs.data?.services.map((s) => <Link key={s.slug} to={`/services/${s.slug}`} className="card link"><div className="row between"><div className="icon-box"><Icon name={s.icon} /></div><PriceTag s={s} /></div><h3>{pick(s, 'name')}</h3><p className="small muted">{pick(s, 'summary')}</p><div className="row gap-s">{s.regulated && <Badge kind="amber">Authorised partner required</Badge>}<Badge>{s.kind === 'info' ? 'Free guidance' : s.kind === 'booking' ? 'Booking' : s.kind === 'subscription' ? 'Subscription' : 'Managed case'}</Badge></div></Link>)}</div></div>;
@@ -145,11 +129,11 @@ export function Calculator() {
 }
 
 export function Requirements() {
-  const { lang } = useI18n(); const [q, setQ] = useState(''); const [cat, setCat] = useState('');
+  const { lang } = useI18n(); const [params] = useSearchParams(); const [q, setQ] = useState(params.get('q') || ''); const [cat, setCat] = useState(params.get('category') || '');
   const r = useApi(`/api/public/routes${qs({ q, category: cat })}`);
   return <div className="wrap section"><h1>Requirements & routes</h1><p className="sub muted">Free guidance from our maintained registry. Each route shows which stages are required, conditional or unnecessary, with sources and the date it was last reviewed. Official digital services are a legitimate option — use them directly where they suit you.</p>
     <div className="row mb"><input className="input" style={{ maxWidth: 320 }} placeholder="Search e.g. degree, marriage, invoice" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search routes" /><Select value={cat} onChange={(e) => setCat(e.target.value)} style={{ maxWidth: 220 }}><option value="">All document types</option>{['educational', 'personal', 'commercial', 'translation', 'recognition', 'pro'].map((c) => <option key={c} value={c}>{c}</option>)}</Select></div>
-    <Loading state={r} /><div className="col">{r.data?.routes.map((rt) => <Card key={rt.slug}><div className="row between"><div><h3 style={{ marginBottom: 2 }}>{lang === 'ar' && rt.title_ar ? rt.title_ar : rt.title_en}</h3><div className="small muted">{rt.purpose} · issued: {rt.issuing_country} · use: {rt.use_destination}</div></div><div className="row"><Badge kind={rt.apostille_applicable ? 'blue' : ''}>{rt.apostille_applicable ? 'Apostille route' : 'Standard route'}</Badge><Badge kind={rt.freshness.stale ? 'amber' : 'green'}>{rt.freshness.stale ? `Due for review (${rt.freshness.age_days}d)` : `Reviewed ${fdate(rt.reviewed_on)}`}</Badge></div></div>
+    <Loading state={r} />{!r.loading && !r.error && r.data?.routes.length === 0 && <Empty>No published route matches these filters yet. Try a broader search or <Link to="/services">request a document review</Link>.</Empty>}<div className="col">{r.data?.routes.map((rt) => <Card key={rt.slug}><div className="row between"><div><h3 style={{ marginBottom: 2 }}>{lang === 'ar' && rt.title_ar ? rt.title_ar : rt.title_en}</h3><div className="small muted">{rt.purpose} · issued: {rt.issuing_country} · use: {rt.use_destination}</div></div><div className="row"><Badge kind={rt.apostille_applicable ? 'blue' : ''}>{rt.apostille_applicable ? 'Apostille route' : 'Standard route'}</Badge><Badge kind={rt.freshness.stale ? 'amber' : 'green'}>{rt.freshness.stale ? `Due for review (${rt.freshness.age_days}d)` : `Reviewed ${fdate(rt.reviewed_on)}`}</Badge></div></div>
       <p className="small mt">{rt.summary}</p>
       <div className="grid g2"><div><h4>Stages</h4><div className="stages">{rt.stages.map((s) => <div key={s.id} className={`stage ${s.necessity === 'unnecessary_if_done' ? 'skip' : ''}`}><span className="n">{s.seq}</span><div><b>{lang === 'ar' && s.name_ar ? s.name_ar : s.name}</b><div className="tiny muted">{s.necessity.replace(/_/g, ' ')} · {s.owner}{s.note ? ` · ${s.note}` : ''}</div></div><span className="small muted">{s.max_days ? `${s.min_days}–${s.max_days}d` : ''}</span></div>)}</div></div>
         <div><h4>Checklist (free)</h4><ul>{rt.requirements.map((x) => <li key={x.id}>{x.label}</li>)}</ul><h4>Sources</h4><ul className="small">{rt.source_urls.length ? rt.source_urls.map((u) => <li key={u}><a href={u} target="_blank" rel="noreferrer">{u}</a></li>) : <li>Specialist guidance — no public source</li>}</ul><div className="row"><Btn to={`/calculator?service=${rt.doc_category === 'translation' ? 'legal-translation' : rt.doc_category === 'personal' ? 'personal-attestation' : rt.doc_category === 'commercial' ? 'commercial-attestation' : rt.doc_category === 'pro' ? 'document-clearing' : 'educational-attestation'}`} size="sm">Estimate cost</Btn></div></div></div></Card>)}</div></div>;
